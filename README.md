@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/logo.png" alt="Git Relay Logo" width="200">
+  <img src="docs/logo300.png" alt="Git Relay Logo" width="300">
 </p>
 
 # Git Relay
