@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "gitrelay"
+version = "0.0.1"
+authors = [
+  { name="Luís Gomes", email="luismsgomes@gmail.com" },
+]
+description = "A tool to synchronize git repos with smart scheduling and systemd integration."
+readme = "README.md"
+requires-python = ">=3.10"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
+    "Operating System :: OS Independent",
+]
+dependencies = []
+
+[project.urls]
+"Homepage" = "https://github.com/luismsgomes/gitrelay"
+"Bug Tracker" = "https://github.com/luismsgomes/gitrelay/issues"
+
+[project.scripts]
+gitrelay = "gitrelay.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
