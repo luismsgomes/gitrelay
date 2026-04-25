@@ -1,9 +1,9 @@
 import json
 from enum import Enum
 from pathlib import Path
-from typing import Self, Optional
+from typing import Self, List, Any, Sequence
 import fcntl
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator, ConfigDict
 
 
 class SyncDirection(str, Enum):
@@ -90,6 +90,9 @@ class BaseConfigFile(BaseModel):
         with open(path, "a+") as f:
             fcntl.flock(f, fcntl.LOCK_EX)
             try:
+                # Trigger full validation before saving
+                self.model_validate(self.model_dump())
+
                 f.seek(0)
                 f.truncate()
                 # Use model_dump(mode="json") to handle non-serializable types like Path
@@ -155,23 +158,21 @@ class SyncBaseConfig(BaseModel):
     sync_interval_adjust: bool = Field(
         description="Whether to dynamically adjust the synchronization interval based on activity."
     )
+    target_alias: str = Field(
+        description="A name that will be used to refer to the sync target."
+    )
 
 
-class LocalRepoSyncBaseConfig(BaseModel):
+class LocalRepoSyncBaseConfig(SyncBaseConfig):
     local_repo_path: Path = Field(
         description="Filesystem path to the local repository."
-    )
-    local_repo_alias: str = Field(
-        description="The git remote name that will be added to the hub to refer to the repository."
-    )
-    local_hub_alias: str = Field(
-        description="The git remote name that will be added to the repository to refer to the hub."
     )
 
 
 class LocalRepoSyncConfig(LocalRepoSyncBaseConfig):
     @property
     def sync_direction(self) -> SyncDirection:
+        "Synchronization direction for local repositories (always FETCH)."
         # cannot push to normal (non-bare) repos
         return SyncDirection.FETCH
 
@@ -197,31 +198,68 @@ class RemoteHostConfig(BaseModel):
     )
 
 
-class RemoteHubSyncBaseConfig(SyncBaseConfig):
+class RemoteHubSyncConfig(SyncBaseConfig):
     remote_hub_name: Path = Field(description="Name of the remote hub.")
     remote_host_config: RemoteHostConfig = Field(
         description="Configuration for the remote host."
     )
-    remote_hub_alias: str = Field(
-        description="The git remote name that will be added to the local hub to refer to the remote hub."
-    )
-
-
-class RemoteHubSyncConfig(RemoteHubSyncBaseConfig):
-    pass
 
 
 class LocalHubConfig(BaseModel):
+    model_config = ConfigDict(validate_assignment=True)
+
     hub_name: str = Field(description="Name of the local hub.")
     synced_local_repos: list[LocalRepoSyncConfig] = Field(
-        description="List of local non-bare repositories synchronized with this hub."
+        default_factory=list,
+        description="List of local non-bare repositories synchronized with this hub.",
     )
     synced_local_bare_repos: list[LocalBareRepoSyncConfig] = Field(
-        description="List of local bare repositories synchronized with this hub."
+        default_factory=list,
+        description="List of local bare repositories synchronized with this hub.",
     )
     synced_remote_hubs: list[RemoteHubSyncConfig] = Field(
-        description="List of remote hubs synchronized with this hub."
+        default_factory=list,
+        description="List of remote hubs synchronized with this hub.",
     )
+
+    @property
+    def all_sync_targets(self) -> Sequence[SyncBaseConfig]:
+        """Returns a combined sequence of all synchronization targets."""
+        return (
+            list(self.synced_local_repos)
+            + list(self.synced_local_bare_repos)
+            + list(self.synced_remote_hubs)
+        )
+
+    @model_validator(mode="after")
+    def validate_unique_aliases(self) -> Self:
+        """Ensures that all target aliases within the hub are unique."""
+        aliases = [t.target_alias for t in self.all_sync_targets]
+        if len(aliases) != len(set(aliases)):
+            duplicates = [a for a in set(aliases) if aliases.count(a) > 1]
+            raise ValueError(f"Duplicate target aliases found: {', '.join(duplicates)}")
+        return self
+
+    def _check_alias_uniqueness(self, alias: str):
+        if any(t.target_alias == alias for t in self.all_sync_targets):
+            raise ValueError(
+                f"Alias '{alias}' is already in use in hub '{self.hub_name}'"
+            )
+
+    def add_synced_local_repo(self, config: LocalRepoSyncConfig):
+        """Adds a local repository to the hub with an immediate uniqueness check."""
+        self._check_alias_uniqueness(config.target_alias)
+        self.synced_local_repos.append(config)
+
+    def add_synced_local_bare_repo(self, config: LocalBareRepoSyncConfig):
+        """Adds a local bare repository to the hub with an immediate uniqueness check."""
+        self._check_alias_uniqueness(config.target_alias)
+        self.synced_local_bare_repos.append(config)
+
+    def add_synced_remote_hub(self, config: RemoteHubSyncConfig):
+        """Adds a remote hub to the hub with an immediate uniqueness check."""
+        self._check_alias_uniqueness(config.target_alias)
+        self.synced_remote_hubs.append(config)
 
 
 class LocalHubsConfig(BaseConfigFile):

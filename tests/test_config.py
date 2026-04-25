@@ -2,7 +2,15 @@ import json
 import pytest
 import time
 from pathlib import Path
-from gitrelay.config import MainConfig, LocalHubsConfig, LocalHubConfig
+from pydantic import ValidationError
+from gitrelay.config import (
+    MainConfig,
+    LocalHubsConfig,
+    LocalHubConfig,
+    LocalRepoSyncConfig,
+    LocalBareRepoSyncConfig,
+    SyncDirection,
+)
 
 
 @pytest.fixture
@@ -108,3 +116,76 @@ def test_complex_config_roundtrip(test_hubs_path):
     loaded = LocalHubsConfig.load()
     assert len(loaded.local_hubs) == 1
     assert loaded.local_hubs[0].hub_name == "work/api"
+
+
+def test_hub_alias_uniqueness_validation():
+    """Verifies that duplicate aliases are caught by the model validator."""
+    # Create two configs with same alias
+    repo1 = LocalRepoSyncConfig(
+        target_alias="origin",
+        sync_interval_secs=3600,
+        sync_interval_adjust=True,
+        local_repo_path=Path("/tmp/repo1"),
+    )
+    repo2 = LocalRepoSyncConfig(
+        target_alias="origin",  # CLASH
+        sync_interval_secs=3600,
+        sync_interval_adjust=True,
+        local_repo_path=Path("/tmp/repo2"),
+    )
+
+    with pytest.raises(ValueError, match="Duplicate target aliases found"):
+        LocalHubConfig(hub_name="my-hub", synced_local_repos=[repo1, repo2])
+
+
+def test_add_synced_methods_enforce_uniqueness():
+    """Verifies that add_synced_* methods check uniqueness immediately."""
+    hub = LocalHubConfig(hub_name="my-hub")
+
+    repo1 = LocalRepoSyncConfig(
+        target_alias="origin",
+        sync_interval_secs=3600,
+        sync_interval_adjust=True,
+        local_repo_path=Path("/tmp/repo1"),
+    )
+
+    hub.add_synced_local_repo(repo1)
+
+    # Try to add a bare repo with same alias
+    bare_repo = LocalBareRepoSyncConfig(
+        target_alias="origin",  # CLASH
+        sync_interval_secs=3600,
+        sync_interval_adjust=True,
+        local_repo_path=Path("/tmp/bare"),
+        sync_direction=SyncDirection.BOTH,
+    )
+
+    with pytest.raises(ValueError, match="already in use"):
+        hub.add_synced_local_bare_repo(bare_repo)
+
+
+def test_save_triggers_validation():
+    """Verifies that save() fails if the model state is somehow corrupted."""
+    # This shouldn't happen if using add_ methods, but let's test the 'safety net'
+    repo = LocalRepoSyncConfig(
+        target_alias="origin",
+        sync_interval_secs=3600,
+        sync_interval_adjust=True,
+        local_repo_path=Path("/tmp/repo1"),
+    )
+    hub = LocalHubConfig(hub_name="my-hub", synced_local_repos=[repo])
+
+    # Manually bypass the method to create a clash
+    hub.synced_local_bare_repos.append(
+        LocalBareRepoSyncConfig(
+            target_alias="origin",
+            sync_interval_secs=3600,
+            sync_interval_adjust=True,
+            local_repo_path=Path("/tmp/bare"),
+            sync_direction=SyncDirection.BOTH,
+        )
+    )
+
+    # Verify the object itself is now invalid according to its own validator
+    with pytest.raises(ValidationError):
+        hub.model_validate(hub.model_dump())
