@@ -15,8 +15,10 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import typer
+import click
+from typing import Optional
 from rich import print
-from . import install
+from . import install, daemon
 
 app = typer.Typer(
     help="Git Relay: Synchronize git repositories with smart scheduling.",
@@ -69,6 +71,59 @@ def uninstall_service():
         print("[green]Successfully uninstalled systemd service.[/green]")
     else:
         print("[yellow]Systemd service not found or could not be removed.[/yellow]")
+
+
+# --- Daemon Group ---
+daemon_app = typer.Typer(help="Control the background synchronization daemon.")
+app.add_typer(daemon_app, name="daemon")
+
+
+@daemon_app.command("start")
+def daemon_start():
+    """Start the background synchronization daemon."""
+    daemon.daemon_start()
+    print("[green]Daemon started.[/green]")
+
+
+# --- General Commands ---
+@app.command("help")
+def show_help(ctx: typer.Context, command: Optional[str] = typer.Argument(None)):
+    """Show help for a specific command or an overview of all commands."""
+    main_click_group = typer.main.get_command(app)
+
+    if command:
+        sub_command = main_click_group.get_command(ctx, command)
+        if sub_command:
+            print(sub_command.get_help(ctx))
+        else:
+            print(f"[red]Unknown command: {command}[/red]")
+            raise typer.Exit(code=1)
+    else:
+        print("\n[bold]Git Relay Command Reference[/bold]")
+        print("Usage: [bold]gitrelay[/bold] <command> <subcommand>\n")
+
+        # 1. Print General Commands (like help itself)
+        help_cmd = main_click_group.get_command(ctx, "help")
+        if help_cmd:
+            print(
+                f"  [green]gitrelay help[/green]{' ' * 9} [dim]{help_cmd.help}[/dim]\n"
+            )
+
+        # 2. Print Categorized Groups
+        for name, cmd in sorted(main_click_group.commands.items()):
+            if name == "help":
+                continue
+
+            if isinstance(cmd, click.Group):
+                header = cmd.help or f"Manage {name} commands"
+                print(f"[italic cyan]{header}:[/italic cyan]")
+                for sub_name, sub_cmd in sorted(cmd.commands.items()):
+                    full_cmd = f"{name} {sub_name}"
+                    sub_help = sub_cmd.help or sub_cmd.short_help or ""
+                    print(
+                        f"  [green]gitrelay {full_cmd:18}[/green] [dim]{sub_help}[/dim]"
+                    )
+                print()
 
 
 def main():
