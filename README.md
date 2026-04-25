@@ -47,12 +47,16 @@ A **Hub** is a bare git repository managed exclusively by `gitrelay`. It acts as
 - **Hub Name:** Hubs are identified by their relative path from the base `hub_dir`.
 - **Hub Namespaces:** Hubs can be organized into subdirectories within the `hub_dir`, up to a configurable maximum depth. Thus a Hub Name may consist of several path components, separated with `/`. The namespace of a hub is thus the path up to and excluding the last path component of a hub name.
      - *Example:* hub name=`work/foo-bar` -> hub namespace=`work`.
-
-#### Discovery and Location
-- **Scanning:** `gitrelay` periodically scans configured hosts for hubs (including the local machine) for hubs -- hubs are just bare git repositories within a special dir and thus may be created without using `gitrelay`. Newly discovered hubs and missing hubs are reported in `~/.cache/scan/log.jsonl`. At any point in time, all local hubs that are known to `gitrelay` are listed in `~/.cache/scan/hubs/local.jsonl` and all remote hubs are listed on files named according to the remote host where the hubs were found: `~/.cache/scan/hubs/remote-{host_name}.jsonl`.
-
 - **Hub Path:** A hub's path is `hub_dir` + `Hub Name` + `.git`.
      - *Example:* `work/foo-bar` -> `~/gitrepos/work/foo-bar.git`.
+
+#### Discovery and Scanning
+Git Relay is designed to give you absolute control; **synchronization jobs are never created automatically.** Instead, Git Relay uses an optional scanning process to simplify manual configuration.
+
+- **Intelligent Suggestions:** By periodically scanning local and remote directories, the tool identifies repositories and hubs with shared commit lineage or matching names.
+- **Effortless Setup:** Discovered but unsynced hubs and repos are listed within the interface, allowing you to pick targets easily without having to navigate the filesystem manually.
+- **Comprehensive Logging:** Newly discovered or missing hubs are reported in `~/.cache/scan/log.jsonl`. Current known hubs are indexed in `~/.cache/scan/hubs/`.
+
 
 #### Hub Naming Rules
 A **Logical Hub Name** must:
