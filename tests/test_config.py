@@ -1,18 +1,18 @@
 import json
 import pytest
 from pathlib import Path
-from gitrelay.config import ToolConfig, LocalHubsConfig, LocalHubConfig
+from gitrelay.config import MainConfig, LocalHubsConfig, LocalHubConfig
 
 
 @pytest.fixture
 def test_tool_path(tmp_path):
-    """Provides a temporary path for ToolConfig and cleans up after."""
+    """Provides a temporary path for MainConfig and cleans up after."""
     path = tmp_path / "tool.json"
     # Mock the get_config_path to use our temp path
-    original_method = ToolConfig.get_config_path
-    ToolConfig.get_config_path = classmethod(lambda cls: path)
+    original_method = MainConfig.get_config_path
+    MainConfig.get_config_path = classmethod(lambda cls: path)
     yield path
-    ToolConfig.get_config_path = original_method
+    MainConfig.get_config_path = original_method
 
 
 @pytest.fixture
@@ -28,14 +28,14 @@ def test_hubs_path(tmp_path):
 def test_load_raises_not_found(test_tool_path):
     """Verifies that load() raises FileNotFoundError if config is missing."""
     with pytest.raises(FileNotFoundError):
-        ToolConfig.load()
+        MainConfig.load()
 
 
 def test_load_raises_json_error(test_tool_path):
     """Verifies that load() raises JSONDecodeError if JSON is malformed."""
     test_tool_path.write_text("{ invalid json")
     with pytest.raises(json.JSONDecodeError):
-        ToolConfig.load()
+        MainConfig.load()
 
 
 def test_load_raises_validation_error(test_tool_path):
@@ -47,12 +47,12 @@ def test_load_raises_validation_error(test_tool_path):
     import pydantic
 
     with pytest.raises(pydantic.ValidationError):
-        ToolConfig.load()
+        MainConfig.load()
 
 
 def test_tool_config_save_load(test_tool_path):
-    """Verifies saving and loading ToolConfig."""
-    config = ToolConfig()
+    """Verifies saving and loading MainConfig."""
+    config = MainConfig()
     config.default_local_repo_sync_interval_secs = 7200
     config.save()
 
@@ -65,7 +65,7 @@ def test_tool_config_save_load(test_tool_path):
         assert data["local_hubs_dir"] == "~/githubs"
 
     # Verify content via load()
-    loaded = ToolConfig.load()
+    loaded = MainConfig.load()
     assert loaded.default_local_repo_sync_interval_secs == 7200
     assert loaded.local_hubs_dir == Path("~/githubs")
 

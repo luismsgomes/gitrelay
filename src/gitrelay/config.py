@@ -67,7 +67,15 @@ class BaseConfigFile(BaseModel):
                 fcntl.flock(f, fcntl.LOCK_UN)
 
 
-class ToolConfig(BaseConfigFile):
+class MainConfig(BaseConfigFile):
+    sync_enabled: bool = Field(
+        default=True,
+        description="Whether the background synchronization is enabled.",
+    )
+    scan_enabled: bool = Field(
+        default=True,
+        description="Whether automatic hub scanning is enabled.",
+    )
     local_hubs_dir: Path = Field(
         default=Path("~/githubs"),
         description="Directory where local hubs are stored.",
