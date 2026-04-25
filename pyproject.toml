@@ -18,6 +18,7 @@ classifiers = [
 ]
 dependencies = [
     "pydantic",
+    "typer",
 ]
 
 [project.optional-dependencies]
@@ -31,7 +32,7 @@ dev = [
 "Bug Tracker" = "https://github.com/luismsgomes/gitrelay/issues"
 
 [project.scripts]
-gitrelay = "gitrelay.cli:main"
+gitrelay = "gitrelay.main:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
