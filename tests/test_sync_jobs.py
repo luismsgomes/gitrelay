@@ -1,18 +1,17 @@
-import os
-import json
-import pytest
-import time
 from datetime import datetime, timedelta
 from pathlib import Path
-from unittest.mock import MagicMock, patch, PropertyMock
+from unittest.mock import MagicMock, PropertyMock, patch
+
+import pytest
+
+from gitrelay.config import LocalHubConfig, LocalHubsConfig, LocalRepoSyncConfig
 from gitrelay.sync_jobs import (
-    SyncResult,
     CommitInfo,
-    SyncJob,
     LocalRepoSyncJob,
+    SyncJob,
+    SyncResult,
     get_sync_jobs,
 )
-from gitrelay.config import LocalHubConfig, LocalRepoSyncConfig, LocalHubsConfig
 
 
 @pytest.fixture

@@ -1,22 +1,24 @@
 # Copyright (c) 2026 Luís Gomes <https://luismsgomes.github.io/>
 
 import logging
-import time
 import os
-from typing import List, Optional, TypeVar, Generic, Self
+import time
 from abc import abstractmethod
 from datetime import datetime
 from pathlib import Path
+from typing import Generic, List, Optional, Self, TypeVar
+
 from pydantic import BaseModel, Field
-from .job import BaseJob
+
 from .config import (
-    LocalHubsConfig,
-    LocalHubConfig,
-    LocalRepoSyncConfig,
     LocalBareRepoSyncConfig,
+    LocalHubConfig,
+    LocalHubsConfig,
+    LocalRepoSyncConfig,
     RemoteHubSyncConfig,
     SyncBaseConfig,
 )
+from .job import BaseJob
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +28,7 @@ class CommitInfo(BaseModel):
 
     hash: str = Field(description="The full SHA-1 hash of the commit.")
     timestamp: datetime = Field(
-        description="The commit datetime. Used to dynamically adjust sync frequency for active repositories."
+        description="Commit datetime. Used to dynamically adjust sync frequency."
     )
 
 
@@ -66,10 +68,12 @@ class SyncResult(BaseModel):
         try:
             with open(path, "rb") as f:
                 try:
+                    # Seek to the end, then move back to find the last newline
                     f.seek(-2, os.SEEK_END)
                     while f.read(1) != b"\n":
                         f.seek(-2, os.SEEK_CUR)
                 except (OSError, ValueError):
+                    # File is too small or has no newlines, read from start
                     f.seek(0)
 
                 last_line = f.readline().decode("utf-8")
@@ -152,7 +156,7 @@ class LocalRepoSyncJob(SyncJob[LocalRepoSyncConfig]):
 
 
 class LocalBareRepoSyncJob(SyncJob[LocalBareRepoSyncConfig]):
-    """Synchronization job between a local hub and a local bare repository (outside hub_dir)."""
+    """Synchronization job between a local hub and a local bare repository."""
 
     def _run(self, result: SyncResult) -> None:
         logger.info(

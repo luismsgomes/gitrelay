@@ -1,14 +1,16 @@
 import json
-import pytest
 import time
 from pathlib import Path
+
+import pytest
 from pydantic import ValidationError
+
 from gitrelay.config import (
-    MainConfig,
-    LocalHubsConfig,
-    LocalHubConfig,
-    LocalRepoSyncConfig,
     LocalBareRepoSyncConfig,
+    LocalHubConfig,
+    LocalHubsConfig,
+    LocalRepoSyncConfig,
+    MainConfig,
     SyncDirection,
 )
 

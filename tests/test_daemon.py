@@ -1,9 +1,11 @@
+from unittest.mock import MagicMock, patch
+
 import pytest
-from unittest.mock import patch, MagicMock
+
+from gitrelay.config import LocalHubConfig, MainConfig, SyncBaseConfig
 from gitrelay.daemon import daemon_start
-from gitrelay.config import MainConfig, LocalHubConfig, SyncBaseConfig
-from gitrelay.sync_jobs import SyncJob
 from gitrelay.scan_jobs import ScanJob
+from gitrelay.sync_jobs import SyncJob
 
 
 class StopLoop(Exception):
@@ -31,6 +33,7 @@ def mock_config():
     config.sync_enabled = True
     config.scan_enabled = True
     config.idle_sleep_secs = 10
+    # By default, config.reload() returns False (no changes found on disk)
     config.reload.return_value = False
     return config
 
@@ -63,7 +66,6 @@ def test_daemon_loop_basic_execution(mock_config):
         patch("gitrelay.daemon.time.sleep") as mock_sleep,
         patch("gitrelay.daemon.logger") as mock_logger,
     ):
-
         # ORCHESTRATION: Force exit on the 4th reload call
         mock_config.reload.side_effect = [False, False, False, StopLoop("Exit Loop")]
 
@@ -74,7 +76,6 @@ def test_daemon_loop_basic_execution(mock_config):
         assert excinfo.value.code == 1
 
         # VERIFY LOGGING: Ensure the crash was logged with the StopLoop exception
-        # daemon.py: logger.critical("Daemon crashed: %s", e, exc_info=True)
         mock_logger.critical.assert_called_once()
         args, kwargs = mock_logger.critical.call_args
         assert "Daemon crashed" in args[0]
@@ -88,7 +89,10 @@ def test_daemon_loop_basic_execution(mock_config):
 
 
 def test_daemon_loop_disabling_mid_cycle(mock_config):
-    """Verifies that disabling sync mid-cycle prevents remaining sync jobs from running."""
+    """
+    Verifies the future-proof filtering logic:
+    If sync_enabled becomes False, remaining SyncJobs should be skipped.
+    """
     hub_config = MagicMock(spec=LocalHubConfig)
     hub_config.hub_name = "test-hub"
 
@@ -140,7 +144,6 @@ def test_daemon_idle_sleep_when_no_jobs(mock_config):
         patch("gitrelay.daemon.time.sleep") as mock_sleep,
         patch("gitrelay.daemon.logger"),
     ):
-
         mock_config.reload.side_effect = [False, StopLoop()]
 
         with pytest.raises(SystemExit):

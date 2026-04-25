@@ -26,6 +26,7 @@ dependencies = [
 dev = [
     "pytest",
     "black",
+    "ruff",
 ]
 
 [project.urls]
@@ -41,3 +42,15 @@ where = ["src"]
 [tool.black]
 line-length = 88
 target-version = ['py311']
+
+[tool.ruff]
+line-length = 88
+target-version = "py311"
+
+[tool.ruff.lint]
+select = [
+    "E", # pycodestyle errors
+    "F", # Pyflakes (unused imports, etc.)
+    "I", # isort (import sorting)
+]
+ignore = []

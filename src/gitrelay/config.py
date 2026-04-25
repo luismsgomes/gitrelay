@@ -1,9 +1,10 @@
+import fcntl
 import json
 from enum import Enum
 from pathlib import Path
-from typing import Self, List, Any, Sequence
-import fcntl
-from pydantic import BaseModel, Field, model_validator, ConfigDict
+from typing import Self, Sequence
+
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class SyncDirection(str, Enum):
@@ -123,7 +124,7 @@ class MainConfig(BaseConfigFile):
     )
     default_local_repo_sync_interval_secs: int = Field(
         default=3600,
-        description="Default synchronization interval for local repositories in seconds.",
+        description="Default synchronization interval for local repos (seconds).",
     )
     default_remote_hub_sync_interval_secs: int = Field(
         default=3600,
@@ -156,7 +157,7 @@ class SyncBaseConfig(BaseModel):
         description="Interval between synchronization runs in seconds."
     )
     sync_interval_adjust: bool = Field(
-        description="Whether to dynamically adjust the synchronization interval based on activity."
+        description="Whether to adjust sync interval based on repository activity."
     )
     target_alias: str = Field(
         description="A name that will be used to refer to the sync target."
@@ -164,9 +165,7 @@ class SyncBaseConfig(BaseModel):
 
 
 class LocalRepoSyncBaseConfig(SyncBaseConfig):
-    local_repo_path: Path = Field(
-        description="Filesystem path to the local repository."
-    )
+    local_repo_path: Path = Field(description="Path to the local repository.")
 
 
 class LocalRepoSyncConfig(LocalRepoSyncBaseConfig):
@@ -252,7 +251,7 @@ class LocalHubConfig(BaseModel):
         self.synced_local_repos.append(config)
 
     def add_synced_local_bare_repo(self, config: LocalBareRepoSyncConfig):
-        """Adds a local bare repository to the hub with an immediate uniqueness check."""
+        """Adds a local bare repository with an immediate uniqueness check."""
         self._check_alias_uniqueness(config.target_alias)
         self.synced_local_bare_repos.append(config)
 

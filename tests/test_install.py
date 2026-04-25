@@ -1,15 +1,17 @@
 import os
 import shutil
 import subprocess
-import pytest
 from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
+
+import pytest
+
 from gitrelay.install import (
+    check_cli_symlink,
     get_executable_path,
     install_cli_symlink,
-    check_cli_symlink,
-    uninstall_cli_symlink,
     install_systemd_service,
+    uninstall_cli_symlink,
     uninstall_systemd_service,
 )
 

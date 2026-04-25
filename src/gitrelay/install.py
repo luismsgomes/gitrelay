@@ -1,10 +1,10 @@
 # Copyright (c) 2026 Luís Gomes <https://luismsgomes.github.io/>
 
+import logging
 import os
-import sys
 import shutil
 import subprocess
-import logging
+import sys
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -100,9 +100,7 @@ def install_systemd_service() -> bool:
             SERVICE_TEMPLATE.format(executable=executable, path=path_env)
         )
         if not shutil.which("systemctl"):
-            logger.error(
-                "Error: 'systemctl' command not found. Systemd service cannot be managed."
-            )
+            logger.error("Error: 'systemctl' not found. Service cannot be managed.")
             return False
         subprocess.run(["systemctl", "--user", "daemon-reload"], check=True)
         subprocess.run(

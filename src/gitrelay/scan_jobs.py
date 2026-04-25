@@ -2,6 +2,7 @@
 
 import logging
 from typing import List
+
 from .job import BaseJob
 
 logger = logging.getLogger(__name__)

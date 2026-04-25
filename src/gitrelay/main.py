@@ -1,4 +1,4 @@
-# gitrelay: A tool to synchronize git repos with smart scheduling and systemd integration.
+# gitrelay: Sync git repos with smart scheduling and systemd integration.
 # Copyright (C) 2026  Luís Gomes
 #
 # This program is free software: you can redistribute it and/or modify
@@ -14,13 +14,13 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-import typer
-import click
 import subprocess
-import os
 from typing import Optional
+
+import typer
 from rich import print
-from . import install, daemon
+
+from . import daemon, install
 
 app = typer.Typer(
     help="Git Relay: Synchronize git repositories with smart scheduling.",
@@ -131,6 +131,8 @@ def daemon_status():
 @app.command("help")
 def show_help(ctx: typer.Context, command: Optional[str] = typer.Argument(None)):
     """Show help for a specific command or an overview of all commands."""
+    import click
+
     main_click_group = typer.main.get_command(app)
 
     if command:
@@ -147,9 +149,8 @@ def show_help(ctx: typer.Context, command: Optional[str] = typer.Argument(None))
         # 1. Print General Commands (like help itself)
         help_cmd = main_click_group.get_command(ctx, "help")
         if help_cmd:
-            print(
-                f"  [green]gitrelay help[/green]{' ' * 9} [dim]{help_cmd.help}[/dim]\n"
-            )
+            h_text = help_cmd.help or ""
+            print(f"  [green]gitrelay help[/green]{' ' * 9} [dim]{h_text}[/dim]\n")
 
         # 2. Print Categorized Groups
         for name, cmd in sorted(main_click_group.commands.items()):

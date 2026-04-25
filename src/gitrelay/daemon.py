@@ -1,9 +1,10 @@
-import time
 import logging
 import sys
+import time
+
 from .config import MainConfig
-from .sync_jobs import get_sync_jobs, SyncJob
-from .scan_jobs import get_scan_jobs, ScanJob
+from .scan_jobs import ScanJob, get_scan_jobs
+from .sync_jobs import SyncJob, get_sync_jobs
 
 logger = logging.getLogger(__name__)
 
@@ -25,7 +26,7 @@ def daemon_start():
                 time.sleep(config.idle_sleep_secs)
                 continue
 
-            # reverse sort because we will process one by one always poping the last from the list
+            # reverse sort so we can pop the last from the list efficiently
             jobs.sort(key=lambda job: job.secs_until_next_run(), reverse=True)
 
             while jobs:
@@ -34,7 +35,7 @@ def daemon_start():
                 logger.debug("Sleeping for %d seconds until next job", secs)
                 time.sleep(secs)
 
-                # Reload config again right before running each job (reloads only if file changed)
+                # Reload config right before running each job (if changed on disk)
                 config.reload()
 
                 if isinstance(job, SyncJob):
