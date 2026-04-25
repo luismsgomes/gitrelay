@@ -1,5 +1,7 @@
 <p align="center">
-  <img src="docs/logo300.png" alt="Git Relay Logo" width="300">
+    <span style="background-color:#0d1117; padding:20px; display:inline-block; border-radius:8px;">
+        <img src="docs/logo300.png" alt="Git Relay Logo" width="300">
+    </span>
 </p>
 
 # Git Relay
