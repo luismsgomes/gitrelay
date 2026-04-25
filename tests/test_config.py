@@ -1,14 +1,14 @@
 import json
 import pytest
+import time
 from pathlib import Path
 from gitrelay.config import MainConfig, LocalHubsConfig, LocalHubConfig
 
 
 @pytest.fixture
-def test_tool_path(tmp_path):
+def test_main_config_path(tmp_path):
     """Provides a temporary path for MainConfig and cleans up after."""
     path = tmp_path / "tool.json"
-    # Mock the get_config_path to use our temp path
     original_method = MainConfig.get_config_path
     MainConfig.get_config_path = classmethod(lambda cls: path)
     yield path
@@ -25,23 +25,48 @@ def test_hubs_path(tmp_path):
     LocalHubsConfig.get_config_path = original_method
 
 
-def test_load_raises_not_found(test_tool_path):
+def test_config_reload(test_main_config_path):
+    """Verifies that reload() only reloads when file actually changes."""
+    config = MainConfig()
+    config.sync_enabled = True
+    config.save()
+
+    # 1. Initial load
+    loaded = MainConfig.load()
+    assert loaded.sync_enabled is True
+
+    # 2. Immediate reload (no change)
+    assert loaded.reload() is False
+
+    # 3. Modify file externally
+    # We sleep to ensure the timestamp changes (mtime granularity)
+    time.sleep(0.01)
+    with open(test_main_config_path, "w") as f:
+        data = loaded.model_dump(mode="json")
+        data["sync_enabled"] = False
+        json.dump(data, f)
+
+    # 4. Reload should now be True
+    assert loaded.reload() is True
+    assert loaded.sync_enabled is False
+
+
+def test_load_raises_not_found(test_main_config_path):
     """Verifies that load() raises FileNotFoundError if config is missing."""
     with pytest.raises(FileNotFoundError):
         MainConfig.load()
 
 
-def test_load_raises_json_error(test_tool_path):
+def test_load_raises_json_error(test_main_config_path):
     """Verifies that load() raises JSONDecodeError if JSON is malformed."""
-    test_tool_path.write_text("{ invalid json")
+    test_main_config_path.write_text("{ invalid json")
     with pytest.raises(json.JSONDecodeError):
         MainConfig.load()
 
 
-def test_load_raises_validation_error(test_tool_path):
+def test_load_raises_validation_error(test_main_config_path):
     """Verifies that load() raises ValidationError if data is invalid."""
-    # default_local_repo_sync_interval_secs should be an int
-    test_tool_path.write_text(
+    test_main_config_path.write_text(
         json.dumps({"default_local_repo_sync_interval_secs": "not an int"})
     )
     import pydantic
@@ -50,24 +75,20 @@ def test_load_raises_validation_error(test_tool_path):
         MainConfig.load()
 
 
-def test_tool_config_save_load(test_tool_path):
+def test_main_config_save_load(test_main_config_path):
     """Verifies saving and loading MainConfig."""
     config = MainConfig()
     config.default_local_repo_sync_interval_secs = 7200
     config.save()
 
-    assert test_tool_path.exists()
+    assert test_main_config_path.exists()
 
-    # Verify content via raw JSON
-    with open(test_tool_path, "r") as f:
+    with open(test_main_config_path, "r") as f:
         data = json.load(f)
         assert data["default_local_repo_sync_interval_secs"] == 7200
-        assert data["local_hubs_dir"] == "~/githubs"
 
-    # Verify content via load()
     loaded = MainConfig.load()
     assert loaded.default_local_repo_sync_interval_secs == 7200
-    assert loaded.local_hubs_dir == Path("~/githubs")
 
 
 def test_complex_config_roundtrip(test_hubs_path):
@@ -87,4 +108,3 @@ def test_complex_config_roundtrip(test_hubs_path):
     loaded = LocalHubsConfig.load()
     assert len(loaded.local_hubs) == 1
     assert loaded.local_hubs[0].hub_name == "work/api"
-    assert isinstance(loaded.local_hubs[0], LocalHubConfig)

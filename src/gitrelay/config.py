@@ -1,7 +1,7 @@
 import json
 from enum import Enum
 from pathlib import Path
-from typing import Self
+from typing import Self, Optional
 import fcntl
 from pydantic import BaseModel, Field
 
@@ -20,6 +20,10 @@ class BaseConfigFile(BaseModel):
     Pydantic models as JSON files. It uses `fcntl` for advisory file locking
     to ensure consistency across multiple processes.
     """
+
+    # We use a PrivateAttr-like pattern (Pydantic handles this automatically for
+    # attributes starting with _) to track when we last read the file.
+    _last_loaded_at: float = 0.0
 
     @classmethod
     def get_config_path(cls) -> Path:
@@ -42,9 +46,37 @@ class BaseConfigFile(BaseModel):
             fcntl.flock(f, fcntl.LOCK_SH)
             try:
                 data = json.load(f)
-                return cls.model_validate(data)
+                obj = cls.model_validate(data)
+                # Store the modification time of the file we just read
+                obj._last_loaded_at = path.stat().st_mtime
+                return obj
             finally:
                 fcntl.flock(f, fcntl.LOCK_UN)
+
+    def reload(self) -> bool:
+        """
+        Reload the configuration from disk if the file has been modified.
+
+        Returns:
+            bool: True if the configuration was actually reloaded, False otherwise.
+        """
+        path = self.get_config_path().expanduser()
+        if not path.exists():
+            return False
+
+        current_mtime = path.stat().st_mtime
+        if current_mtime <= self._last_loaded_at:
+            return False
+
+        # File was modified, perform a fresh load
+        new_data = self.load()
+        # Update our own state from the new object
+        # Note: model_dump(exclude_unset=True) could be used for partial updates,
+        # but here we want a full state refresh.
+        for key, value in new_data.model_dump().items():
+            setattr(self, key, value)
+        self._last_loaded_at = current_mtime
+        return True
 
     def save(self) -> None:
         """
@@ -63,6 +95,8 @@ class BaseConfigFile(BaseModel):
                 # Use model_dump(mode="json") to handle non-serializable types like Path
                 data = self.model_dump(mode="json")
                 json.dump(data, f, indent=4)
+                # Update timestamp after saving to avoid immediate reload
+                self._last_loaded_at = path.stat().st_mtime
             finally:
                 fcntl.flock(f, fcntl.LOCK_UN)
 
@@ -103,6 +137,10 @@ class MainConfig(BaseConfigFile):
     default_remote_hub_sync_direction: SyncDirection = Field(
         default=SyncDirection.BOTH,
         description="Default sync direction for remote hubs.",
+    )
+    idle_sleep_secs: int = Field(
+        default=60,
+        description="Time to sleep when no jobs are active.",
     )
 
     @classmethod
