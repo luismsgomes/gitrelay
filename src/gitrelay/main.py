@@ -16,13 +16,14 @@
 
 import typer
 import click
+import subprocess
+import os
 from typing import Optional
 from rich import print
 from . import install, daemon
 
 app = typer.Typer(
     help="Git Relay: Synchronize git repositories with smart scheduling.",
-    add_completion=False,
 )
 
 # --- Install Group ---
@@ -47,6 +48,20 @@ def install_service():
         print("[green]Successfully installed and started systemd service.[/green]")
     else:
         print("[red]Failed to install systemd service.[/red]")
+        raise typer.Exit(code=1)
+
+
+@install_app.command("bash-completion")
+def install_bash_completion():
+    """Install bash completion for gitrelay."""
+    # We must use the 'gitrelay' command name to ensure Typer generates
+    # clean completion filenames (gitrelay.sh)
+    exe = install.get_executable_path()
+    try:
+        # Use the absolute path to the gitrelay executable
+        subprocess.run([exe, "--install-completion"], check=True)
+    except subprocess.CalledProcessError as e:
+        print(f"[red]Error installing completion: {e}[/red]")
         raise typer.Exit(code=1)
 
 
@@ -83,6 +98,33 @@ def daemon_start():
     """Start the background synchronization daemon."""
     daemon.daemon_start()
     print("[green]Daemon started.[/green]")
+
+
+@daemon_app.command("logs")
+def daemon_logs(
+    follow: bool = typer.Option(False, "--follow", "-f", help="Follow log output.")
+):
+    """View the daemon logs via journalctl."""
+    cmd = ["journalctl", "--user", "-u", f"{install.SERVICE_NAME}.service"]
+    if follow:
+        cmd.append("-f")
+    try:
+        subprocess.run(cmd)
+    except KeyboardInterrupt:
+        # Expected when using -f
+        pass
+
+
+@daemon_app.command("status")
+def daemon_status():
+    """Show the daemon service status via systemctl."""
+    try:
+        subprocess.run(
+            ["systemctl", "--user", "status", f"{install.SERVICE_NAME}.service"]
+        )
+    except Exception as e:
+        print(f"[red]Error checking status: {e}[/red]")
+        raise typer.Exit(code=1)
 
 
 # --- General Commands ---
