@@ -96,8 +96,8 @@ app.add_typer(daemon_app, name="daemon")
 @daemon_app.command("start")
 def daemon_start():
     """Start the background synchronization daemon."""
-    daemon.daemon_start()
     print("[green]Daemon started.[/green]")
+    daemon.daemon_start()
 
 
 @daemon_app.command("logs")
