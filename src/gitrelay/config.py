@@ -1,7 +1,7 @@
 import json
 from enum import Enum
 from pathlib import Path
-from typing import Any, Self
+from typing import Self
 import fcntl
 from pydantic import BaseModel, Field
 
@@ -68,13 +68,34 @@ class BaseConfigFile(BaseModel):
 
 
 class ToolConfig(BaseConfigFile):
-    local_hubs_dir: Path = Path("~/githubs")
-    local_repos_dirs: list[Path] = Field(default_factory=lambda: [Path("~")])
-    default_local_repo_sync_interval_secs: int = 3600
-    default_remote_hub_sync_interval_secs: int = 3600
-    default_ajust_sync_interval: bool = True
-    default_local_bare_repo_sync_direction: SyncDirection = SyncDirection.FETCH
-    default_remote_hub_sync_direction: SyncDirection = SyncDirection.BOTH
+    local_hubs_dir: Path = Field(
+        default=Path("~/githubs"),
+        description="Directory where local hubs are stored.",
+    )
+    local_repos_dirs: list[Path] = Field(
+        default_factory=lambda: [Path("~")],
+        description="List of directories to scan for local repositories.",
+    )
+    default_local_repo_sync_interval_secs: int = Field(
+        default=3600,
+        description="Default synchronization interval for local repositories in seconds.",
+    )
+    default_remote_hub_sync_interval_secs: int = Field(
+        default=3600,
+        description="Default synchronization interval for remote hubs in seconds.",
+    )
+    default_ajust_sync_interval: bool = Field(
+        default=True,
+        description="Whether to automatically adjust sync intervals based on activity.",
+    )
+    default_local_bare_repo_sync_direction: SyncDirection = Field(
+        default=SyncDirection.FETCH,
+        description="Default sync direction for local bare repositories.",
+    )
+    default_remote_hub_sync_direction: SyncDirection = Field(
+        default=SyncDirection.BOTH,
+        description="Default sync direction for remote hubs.",
+    )
 
     @classmethod
     def get_config_path(cls) -> Path:
@@ -82,17 +103,23 @@ class ToolConfig(BaseConfigFile):
 
 
 class SyncBaseConfig(BaseModel):
-    sync_interval_secs: int
-    sync_interval_adjust: bool
+    sync_interval_secs: int = Field(
+        description="Interval between synchronization runs in seconds."
+    )
+    sync_interval_adjust: bool = Field(
+        description="Whether to dynamically adjust the synchronization interval based on activity."
+    )
 
 
 class LocalRepoSyncBaseConfig(BaseModel):
-    local_repo_path: Path
+    local_repo_path: Path = Field(
+        description="Filesystem path to the local repository."
+    )
     local_repo_alias: str = Field(
-        description="the git remote name that will be added to the hub to refer to the repo"
+        description="The git remote name that will be added to the hub to refer to the repository."
     )
     local_hub_alias: str = Field(
-        description="the git remote name that will be added to the repo to refer to the hub"
+        description="The git remote name that will be added to the repository to refer to the hub."
     )
 
 
@@ -104,21 +131,33 @@ class LocalRepoSyncConfig(LocalRepoSyncBaseConfig):
 
 
 class LocalBareRepoSyncConfig(LocalRepoSyncBaseConfig):
-    sync_direction: SyncDirection
+    sync_direction: SyncDirection = Field(
+        description="Synchronization direction for local bare repositories."
+    )
 
 
 class RemoteHostConfig(BaseModel):
-    remote_host_name: str
-    remote_hubs_dir: Path
-    remote_hub_scan_interval_secs: int
-    remote_hub_scan_enabled: bool
+    remote_host_name: str = Field(
+        description="Name of the remote host as defined in SSH configuration."
+    )
+    remote_hubs_dir: Path = Field(
+        description="Base directory for hubs on the remote host."
+    )
+    remote_hub_scan_interval_secs: int = Field(
+        description="Interval between scans for new hubs on the remote host."
+    )
+    remote_hub_scan_enabled: bool = Field(
+        description="Whether automatic hub scanning is enabled for this host."
+    )
 
 
 class RemoteHubSyncBaseConfig(SyncBaseConfig):
-    remote_hub_name: Path
-    remote_host_config: RemoteHostConfig
+    remote_hub_name: Path = Field(description="Name of the remote hub.")
+    remote_host_config: RemoteHostConfig = Field(
+        description="Configuration for the remote host."
+    )
     remote_hub_alias: str = Field(
-        description="the git remote name that will be added to the local hub to refer to the remote hub"
+        description="The git remote name that will be added to the local hub to refer to the remote hub."
     )
 
 
@@ -127,14 +166,22 @@ class RemoteHubSyncConfig(RemoteHubSyncBaseConfig):
 
 
 class LocalHubConfig(BaseModel):
-    hub_name: str
-    synced_local_repos: list[LocalRepoSyncConfig]
-    synced_local_bare_repos: list[LocalBareRepoSyncConfig]
-    synced_remote_hubs: list[RemoteHubSyncConfig]
+    hub_name: str = Field(description="Name of the local hub.")
+    synced_local_repos: list[LocalRepoSyncConfig] = Field(
+        description="List of local non-bare repositories synchronized with this hub."
+    )
+    synced_local_bare_repos: list[LocalBareRepoSyncConfig] = Field(
+        description="List of local bare repositories synchronized with this hub."
+    )
+    synced_remote_hubs: list[RemoteHubSyncConfig] = Field(
+        description="List of remote hubs synchronized with this hub."
+    )
 
 
 class LocalHubsConfig(BaseConfigFile):
-    local_hubs: list[LocalHubConfig]
+    local_hubs: list[LocalHubConfig] = Field(
+        description="List of all local hubs managed by gitrelay."
+    )
 
     @classmethod
     def get_config_path(cls) -> Path:
@@ -142,7 +189,9 @@ class LocalHubsConfig(BaseConfigFile):
 
 
 class HostsConfig(BaseConfigFile):
-    remote_hosts: list[RemoteHostConfig]
+    remote_hosts: list[RemoteHostConfig] = Field(
+        description="List of all configured remote hosts for synchronization."
+    )
 
     @classmethod
     def get_config_path(cls) -> Path:
