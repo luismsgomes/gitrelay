@@ -30,14 +30,14 @@ class BaseConfigFile(BaseModel):
     def load(cls) -> Self:
         """
         Load the configuration from disk with a shared (read) lock.
-        
+
         Raises:
             FileNotFoundError: If the configuration file does not exist.
             json.JSONDecodeError: If the file contains invalid JSON.
             pydantic.ValidationError: If the data does not match the model schema.
         """
         path = cls.get_config_path().expanduser()
-        
+
         with open(path, "r") as f:
             fcntl.flock(f, fcntl.LOCK_SH)
             try:
@@ -49,12 +49,12 @@ class BaseConfigFile(BaseModel):
     def save(self) -> None:
         """
         Save the configuration to disk with an exclusive (write) lock.
-        
+
         Files are saved as indented JSON for human readability.
         """
         path = self.get_config_path().expanduser()
         path.parent.mkdir(parents=True, exist_ok=True)
-        
+
         with open(path, "a+") as f:
             fcntl.flock(f, fcntl.LOCK_EX)
             try:
@@ -69,9 +69,7 @@ class BaseConfigFile(BaseModel):
 
 class ToolConfig(BaseConfigFile):
     local_hubs_dir: Path = Path("~/githubs")
-
     local_repos_dirs: list[Path] = Field(default_factory=lambda: [Path("~")])
-
     default_local_repo_sync_interval_secs: int = 3600
     default_remote_hub_sync_interval_secs: int = 3600
     default_ajust_sync_interval: bool = True
@@ -90,8 +88,12 @@ class SyncBaseConfig(BaseModel):
 
 class LocalRepoSyncBaseConfig(BaseModel):
     local_repo_path: Path
-    local_repo_alias: str  # the git remote name that will be added to the hub to refer to the repo
-    local_hub_alias: str   # the git remote name that will be added to the repo to refer to the hub
+    local_repo_alias: str = Field(
+        description="the git remote name that will be added to the hub to refer to the repo"
+    )
+    local_hub_alias: str = Field(
+        description="the git remote name that will be added to the repo to refer to the hub"
+    )
 
 
 class LocalRepoSyncConfig(LocalRepoSyncBaseConfig):
@@ -115,7 +117,9 @@ class RemoteHostConfig(BaseModel):
 class RemoteHubSyncBaseConfig(SyncBaseConfig):
     remote_hub_name: Path
     remote_host_config: RemoteHostConfig
-    remote_hub_alias: str  # the git remote name that will be added to the local hub to refer to the remote hub
+    remote_hub_alias: str = Field(
+        description="the git remote name that will be added to the local hub to refer to the remote hub"
+    )
 
 
 class RemoteHubSyncConfig(RemoteHubSyncBaseConfig):
