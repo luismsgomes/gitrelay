@@ -32,16 +32,16 @@ import os
 import shutil
 import subprocess
 import time
+import sys
 from datetime import datetime
-from pathlib import Path
-
 import pytest
+from pathlib import Path
 
 TEST_SERVICE_NAME = "gitrelay-test"
 
-# Expected log tokens from src/gitrelay/daemon.py
-START_TOKEN = "Daemon starting..."
-STOP_TOKEN = "Daemon stopping (received SIGTERM)"
+# Core content of expected log tokens
+START_MESSAGE = "Daemon starting..."
+STOP_MESSAGE = "Daemon stopping (received SIGTERM)"
 
 
 @pytest.fixture(autouse=True)
@@ -147,7 +147,7 @@ def test_systemd_install_and_lifecycle(cleanup_service, systemd_env):
     3. LOGS ('daemon logs'):
        - Verify log contains ["Daemon starting..."].
     4. RESTART ('daemon restart'):
-       - Verify the daemon cycles: check for STARTING -> STOP -> START.
+       - Verify the daemon cycles: check for START -> STOP -> START.
     5. STOP ('daemon stop'):
        - Verify log ends with ["Daemon stopping..."].
        - Verify status becomes 'inactive (dead)'.
@@ -170,11 +170,13 @@ def test_systemd_install_and_lifecycle(cleanup_service, systemd_env):
 
     def filter_logs(output):
         """Helper to extract only our daemon tokens from the log output."""
-        return [
-            line.strip()
-            for line in output.splitlines()
-            if START_TOKEN in line or STOP_TOKEN in line
-        ]
+        tokens = []
+        for line in output.splitlines():
+            if START_MESSAGE in line:
+                tokens.append(START_MESSAGE)
+            elif STOP_MESSAGE in line:
+                tokens.append(STOP_MESSAGE)
+        return tokens
 
     # 0. INITIAL CHECK & INIT
     assert not service_path.exists()
@@ -238,8 +240,8 @@ def test_systemd_install_and_lifecycle(cleanup_service, systemd_env):
         check=True,
         env=os.environ,
     )
-    log_lines = filter_logs(result.stdout)
-    assert START_TOKEN in log_lines
+    log_tokens = filter_logs(result.stdout)
+    assert log_tokens == [START_MESSAGE]
 
     # 4. RESTART
     subprocess.run(
@@ -264,11 +266,9 @@ def test_systemd_install_and_lifecycle(cleanup_service, systemd_env):
         text=True,
         env=os.environ,
     )
-    log_lines = filter_logs(result.stdout)
-    # The actual output might have manager noise between tokens,
-    # but filter_logs removes it.
-    assert STOP_TOKEN in log_lines
-    assert log_lines.count(START_TOKEN) >= 2
+    log_tokens = filter_logs(result.stdout)
+    expected_sequence = [START_MESSAGE, STOP_MESSAGE, START_MESSAGE]
+    assert log_tokens == expected_sequence
 
     # 5. STOP
     subprocess.run(
@@ -293,8 +293,8 @@ def test_systemd_install_and_lifecycle(cleanup_service, systemd_env):
         text=True,
         env=os.environ,
     )
-    log_lines = filter_logs(result.stdout)
-    assert log_lines[-1] == STOP_TOKEN
+    log_tokens = filter_logs(result.stdout)
+    assert log_tokens[-1] == STOP_MESSAGE
 
     result = subprocess.run(
         [exe, "daemon", "status"],

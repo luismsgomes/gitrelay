@@ -33,6 +33,15 @@ app = typer.Typer(
 )
 
 
+def setup_logging():
+    """Configures basic logging to stderr."""
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(levelname)s: %(message)s",
+        handlers=[logging.StreamHandler(sys.stderr)],
+    )
+
+
 # --- Installation Logic (formerly install.py) ---
 
 
@@ -362,6 +371,7 @@ def show_help(ctx: typer.Context, command: Optional[str] = typer.Argument(None))
 
 
 def main():
+    setup_logging()
     app()
 
 
