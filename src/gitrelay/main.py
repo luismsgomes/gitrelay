@@ -42,6 +42,9 @@ def setup_logging():
     )
 
 
+# --- Installation Logic ---
+
+
 def get_executable_path() -> str:
     """Returns the absolute path to the current gitrelay executable."""
     executable = subprocess.run(
@@ -166,6 +169,31 @@ def hub_init(
         raise typer.Exit(code=1)
     except Exception as e:
         print(f"[red]Failed to initialize hub: {e}[/red]")
+        raise typer.Exit(code=1)
+
+
+@hub_app.command("delete")
+def hub_delete(
+    name: str = typer.Argument(..., help="The name of the hub to delete."),
+    yes: bool = typer.Option(
+        False, "--yes", "-y", help="Do not ask for confirmation."
+    ),
+):
+    """Delete a local bare git repository (hub) and its logs."""
+    if not yes:
+        typer.confirm(
+            f"Are you sure you want to delete hub '{name}' and all its logs?",
+            abort=True,
+        )
+
+    try:
+        hub.delete_hub(name)
+        print(f"[green]Successfully deleted hub: {name}[/green]")
+    except FileNotFoundError as e:
+        print(f"[red]{e}[/red]")
+        raise typer.Exit(code=1)
+    except Exception as e:
+        print(f"[red]Failed to delete hub: {e}[/red]")
         raise typer.Exit(code=1)
 
 
@@ -389,9 +417,7 @@ def show_help(ctx: typer.Context, command: Optional[str] = typer.Argument(None))
                             full_cmd = f"{prefix}{sub_name}"
                             s_help = sub_cmd.help or sub_cmd.short_help or ""
                             # Format line with dynamic padding
-                            cmd_str = (
-                                f"  [green]gitrelay {full_cmd:<{max_width}}[/green]"
-                            )
+                            cmd_str = f"  [green]gitrelay {full_cmd:<{max_width}}[/green]"
                             print(f"{cmd_str} [dim]{s_help}[/dim]")
 
                 print_group_commands(cmd, prefix=f"{name} ")
