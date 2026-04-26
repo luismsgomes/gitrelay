@@ -22,38 +22,64 @@ def mock_sync_log(tmp_path):
     return log_dir / "target.jsonl"
 
 
-def test_sync_result_append_and_load_last(mock_sync_log):
-    """Verifies that SyncResult can save itself and load the last entry."""
+def test_sync_result_append_and_load_most_recent(mock_sync_log):
+    """Verifies that SyncResult can save itself and load results back."""
     # 1. Create and save first result
     res1 = SyncResult(
         timestamp=datetime.now() - timedelta(minutes=10), errors=["first error"]
     )
     res1.append_to_log(mock_sync_log)
 
-    # 2. Create and save second result (the one we expect to load)
+    # 2. Create and save second result (the newest)
     res2 = SyncResult(
         timestamp=datetime.now(),
         commits_fetched=[CommitInfo(hash="abc", timestamp=datetime.now())],
     )
     res2.append_to_log(mock_sync_log)
 
-    # 3. Load last and verify
-    loaded = SyncResult.load_last(mock_sync_log)
-    assert loaded is not None
-    assert loaded.timestamp.replace(microsecond=0) == res2.timestamp.replace(
+    # 3. Load results and verify
+    loaded = list(SyncResult.load_most_recent(mock_sync_log))
+    assert len(loaded) == 2
+    # Newest should be first
+    assert loaded[0].timestamp.replace(microsecond=0) == res2.timestamp.replace(
         microsecond=0
     )
-    assert len(loaded.commits_fetched) == 1
-    assert loaded.commits_fetched[0].hash == "abc"
-    assert loaded.success is True
+    assert len(loaded[0].commits_fetched) == 1
+    assert loaded[0].commits_fetched[0].hash == "abc"
+    assert loaded[0].success is True
+    
+    # Oldest should be second
+    assert loaded[1].errors == ["first error"]
+
+
+def test_sync_result_load_most_recent_ordering(mock_sync_log):
+    """Verifies that load_most_recent yields all results in reverse order."""
+    # 1. Create and save three results
+    for i in range(3):
+        res = SyncResult(
+            timestamp=datetime.now() - timedelta(minutes=i),
+            errors=[f"error {i}"]
+        )
+        res.append_to_log(mock_sync_log)
+
+    # 2. Load all and verify order (newest first, which is the last one appended)
+    loaded = list(SyncResult.load_most_recent(mock_sync_log))
+    assert len(loaded) == 3
+    
+    assert loaded[0].errors == ["error 2"]
+    assert loaded[1].errors == ["error 1"]
+    assert loaded[2].errors == ["error 0"]
+
+
+def test_sync_result_load_from_missing_file(mock_sync_log):
+    """Verifies load_most_recent yields nothing for missing files."""
+    assert list(SyncResult.load_most_recent(mock_sync_log)) == []
 
 
 def test_sync_result_load_from_empty_file(mock_sync_log):
-    """Verifies load_last returns None for missing or empty files."""
-    assert SyncResult.load_last(mock_sync_log) is None
-
+    """Verifies load_most_recent yields nothing for empty files."""
     mock_sync_log.touch()
-    assert SyncResult.load_last(mock_sync_log) is None
+    assert list(SyncResult.load_most_recent(mock_sync_log)) == []
 
 
 def test_sync_job_log_path(tmp_path):
@@ -85,12 +111,14 @@ def test_sync_job_secs_until_next_run():
     target.target_alias = "target"
     target.sync_interval_secs = 60
 
-    with patch("gitrelay.sync_jobs.SyncResult.load_last", return_value=None):
+    # Ensure no previous runs exist
+    with patch("gitrelay.sync_jobs.SyncResult.load_most_recent", return_value=iter([])):
         job = LocalRepoSyncJob(local_hub_config=hub, sync_target_config=target)
         assert job.secs_until_next_run() == 0
 
     last_res = SyncResult(timestamp=datetime.now() - timedelta(seconds=10))
-    with patch("gitrelay.sync_jobs.SyncResult.load_last", return_value=last_res):
+    # Ensure one previous run exists
+    with patch("gitrelay.sync_jobs.SyncResult.load_most_recent", return_value=iter([last_res])):
         job = LocalRepoSyncJob(local_hub_config=hub, sync_target_config=target)
         # 60 - 10 = 50
         assert job.secs_until_next_run() <= 50

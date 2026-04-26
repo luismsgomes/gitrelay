@@ -1,12 +1,11 @@
 # Copyright (c) 2026 Luís Gomes <https://luismsgomes.github.io/>
 
 import logging
-import os
 import time
 from abc import abstractmethod
 from datetime import datetime
 from pathlib import Path
-from typing import Generic, List, Optional, Self, TypeVar
+from typing import Generator, Generic, List, Optional, Self, TypeVar
 
 from pydantic import BaseModel, Field
 
@@ -19,6 +18,7 @@ from .config import (
     SyncBaseConfig,
     SyncDirection,
 )
+from .io import readlines_backwards
 from .job import BaseJob
 
 logger = logging.getLogger(__name__)
@@ -58,32 +58,17 @@ class SyncResult(BaseModel):
         return len(self.errors) == 0
 
     @classmethod
-    def load_last(cls, path: Path) -> Optional[Self]:
+    def load_most_recent(cls, path: Path) -> Generator[Self, None, None]:
         """
-        Efficiently loads the most recent result from the end of a JSONL log file.
-        Returns None if the file is missing, empty, or malformed.
+        Yields SyncResult objects from a JSONL log file, from newest to oldest.
         """
-        if not path.exists():
-            return None
-
-        try:
-            with open(path, "rb") as f:
-                try:
-                    # Seek to the end, then move back to find the last newline
-                    f.seek(-2, os.SEEK_END)
-                    while f.read(1) != b"\n":
-                        f.seek(-2, os.SEEK_CUR)
-                except (OSError, ValueError):
-                    # File is too small or has no newlines, read from start
-                    f.seek(0)
-
-                last_line = f.readline().decode("utf-8")
-                if not last_line.strip():
-                    return None
-                return cls.model_validate_json(last_line)
-        except Exception as e:
-            logger.warning("Could not load last sync result from %s: %s", path, e)
-            return None
+        for line in readlines_backwards(path):
+            if not line.strip():
+                continue
+            try:
+                yield cls.model_validate_json(line)
+            except Exception as e:
+                logger.warning("Could not parse sync result line from %s: %s", path, e)
 
     def append_to_log(self, path: Path) -> None:
         """Appends the result as a single JSON line to the specified file."""
@@ -109,7 +94,10 @@ class SyncJob(BaseJob, Generic[T]):
     ):
         self.local_hub_config = local_hub_config
         self.sync_target_config = sync_target_config
-        self.last_result: Optional[SyncResult] = SyncResult.load_last(self.log_path)
+        # Load only the very last result for initial state
+        self.last_result: Optional[SyncResult] = next(
+            SyncResult.load_most_recent(self.log_path), None
+        )
 
     def __str__(self) -> str:
         """Returns a string representation of the sync job."""
