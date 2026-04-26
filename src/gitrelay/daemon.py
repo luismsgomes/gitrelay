@@ -37,7 +37,15 @@ def daemon_start(dry_run: bool = False):
 
     logger.info("Daemon starting...")
     try:
-        config = MainConfig.load()
+        try:
+            config = MainConfig.load()
+        except FileNotFoundError:
+            logger.info(
+                "Configuration not found. Initializing defaults at %s",
+                MainConfig.get_config_path(),
+            )
+            config = MainConfig()
+            config.save()
 
         while True:
             config.reload()
