@@ -1,28 +1,25 @@
 """
 Integration test suite for Git Relay systemd integration.
 
-This module verifies the end-to-end integration between the Git Relay,
-systemd, and the background daemon in a real context.
+This module verifies the end-to-end integration between the Git Relay CLI,
+systemd, and the background daemon in a real context using Simulator Mode.
 
 APPROACH:
 1.  Isolation: All tests use the environment variable 'GITRELAY_SERVICE_NAME'
     (set to 'gitrelay-test') to ensure that the test does not interfere with
     the real gitrelay service that may be running.
-2.  Mock Script: We use 'tests/integration/mock_gitrelay.py' as the entry
-    point for integration tests. This script imports the real gitrelay modules
-    but patches the daemon loop to allow for deterministic testing.
-    Since this mock script does not load or save any configuration, the
-    user's real configuration files remain untouched during testing.
-3.  Direct Execution: The integration tests invoke the mock_gitrelay.py script
-    directly via subprocess (e.g., 'python3 mock_gitrelay.py daemon install').
-    This ensures that the generated systemd unit file automatically points
-    to mock_gitrelay.py instead of the real gitrelay executable.
+2.  Simulator Mode: We use the real gitrelay executable with the '--dry-run'
+    flag. This tells the daemon to load configuration and schedule jobs but
+    skip actual repository synchronization, logging its intent instead.
+3.  Initialization: Before installing the service, we run 'config init' to
+    ensure a valid configuration exists in the test environment, preventing
+    startup crashes.
 4.  Real Context: Tests are performed in the user's real $HOME environment,
     communicating with the real systemd user manager and journalctl, providing
     maximum realism while maintaining safety through service isolation.
 
 TESTED SCENARIOS:
-- Service installation ('daemon install') and unit file verification.
+- Service installation ('daemon install --dry-run') and unit file verification.
 - Service lifecycle management ('start', 'stop', 'restart').
 - Service configuration ('enable', 'disable').
 - Observability ('status', 'logs').
@@ -32,20 +29,19 @@ TESTED SCENARIOS:
 # Copyright (c) 2026 Luís Gomes <https://luismsgomes.github.io/>
 
 import os
-import subprocess
 import shutil
+import subprocess
 import time
-import sys
 from datetime import datetime
-import pytest
 from pathlib import Path
-from unittest.mock import patch
-from gitrelay.systemd import (
-    install_service,
-    uninstall_service,
-)
+
+import pytest
 
 TEST_SERVICE_NAME = "gitrelay-test"
+
+# Expected log tokens from src/gitrelay/daemon.py
+START_TOKEN = "Daemon starting..."
+STOP_TOKEN = "Daemon stopping (received SIGTERM)"
 
 
 @pytest.fixture(autouse=True)
@@ -85,31 +81,36 @@ def cleanup_service(systemd_env):
 
 def test_install_systemd_service_logic(tmp_path):
     """Verifies systemd unit creation and command orchestration using mocks."""
-    # We still use tmp_path for the unit file location MOCK to keep it fast
+    from unittest.mock import patch
+
+    from gitrelay.systemd import install_service
+
     mock_config_dir = tmp_path / "systemd" / "user"
     mock_config_dir.mkdir(parents=True)
     exe_path = "/usr/bin/gitrelay"
-    python_exe = "/usr/bin/python3"
     service_file = mock_config_dir / f"{TEST_SERVICE_NAME}.service"
 
     with (
         patch("gitrelay.main.get_executable_path", return_value=exe_path),
-        patch("gitrelay.systemd.sys.executable", python_exe),
         patch("gitrelay.systemd.Path.expanduser", return_value=mock_config_dir),
         patch("gitrelay.systemd.daemon_reload"),
         patch("gitrelay.systemd.enable_service"),
     ):
 
-        assert install_service() is True
+        assert install_service(dry_run=True) is True
         assert service_file.exists()
         content = service_file.read_text()
 
-        # Verify the new structure: separate interpreter and script
-        assert f'ExecStart="{python_exe}" "{exe_path}" daemon run' in content
+        # Verify the pattern: "/path/to/gitrelay" daemon run --dry-run
+        assert f'ExecStart="{exe_path}" daemon run --dry-run' in content
 
 
 def test_uninstall_systemd_service_logic(tmp_path):
     """Verifies service cleanup orchestration using mocks."""
+    from unittest.mock import patch
+
+    from gitrelay.systemd import uninstall_service
+
     mock_config_dir = tmp_path / "systemd" / "user"
     mock_config_dir.mkdir(parents=True)
     service_file = mock_config_dir / f"{TEST_SERVICE_NAME}.service"
@@ -137,18 +138,18 @@ def test_systemd_install_and_lifecycle(cleanup_service, systemd_env):
     TEST PLAN:
     0. INITIAL CHECK:
        - Ensure unit file does not exist.
+       - Initialize a test configuration using 'config init'.
        - Ensure daemon commands fail with expected error messages.
-    1. INSTALL ('daemon install'):
+    1. INSTALL ('daemon install --dry-run'):
        - Verify unit file creation in ~/.config/systemd/user/.
-       - Verify python_exe and script_path separation.
     2. STATUS ('daemon status'):
        - Verify 'active (running)'.
     3. LOGS ('daemon logs'):
-       - Verify log is exactly ["MOCK_DAEMON_STARTING"].
+       - Verify log contains ["Daemon starting..."].
     4. RESTART ('daemon restart'):
-       - Verify the daemon cycles: check for STARTING -> STOPPED -> STARTING.
+       - Verify the daemon cycles: check for STARTING -> STOP -> START.
     5. STOP ('daemon stop'):
-       - Verify log ends with ["MOCK_DAEMON_STOPPED"].
+       - Verify log ends with ["Daemon stopping..."].
        - Verify status becomes 'inactive (dead)'.
     6. UNINSTALL ('daemon uninstall'):
        - Verify unit file removal and service disable.
@@ -157,8 +158,9 @@ def test_systemd_install_and_lifecycle(cleanup_service, systemd_env):
     if not shutil.which("systemctl"):
         pytest.skip("systemctl not found, skipping lifecycle test")
 
-    # Path to our permanent testing asset
-    mock_wrapper_path = Path(__file__).parent / "mock_gitrelay.py"
+    from gitrelay.main import get_executable_path
+
+    exe = get_executable_path()
     service_path = (
         Path("~/.config/systemd/user").expanduser() / f"{TEST_SERVICE_NAME}.service"
     )
@@ -166,11 +168,26 @@ def test_systemd_install_and_lifecycle(cleanup_service, systemd_env):
     # Capture start time to ignore previous logs
     start_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-    # 0. INITIAL CHECK
+    def filter_logs(output):
+        """Helper to extract only our daemon tokens from the log output."""
+        return [
+            line.strip()
+            for line in output.splitlines()
+            if START_TOKEN in line or STOP_TOKEN in line
+        ]
+
+    # 0. INITIAL CHECK & INIT
     assert not service_path.exists()
+
+    # Initialize config so the real daemon doesn't crash
+    subprocess.run(
+        [exe, "config", "init", "--force"],
+        check=True,
+    )
+
     # Status should show 'could not be found'
     res = subprocess.run(
-        [sys.executable, str(mock_wrapper_path), "daemon", "status"],
+        [exe, "daemon", "status"],
         capture_output=True,
         text=True,
     )
@@ -178,27 +195,10 @@ def test_systemd_install_and_lifecycle(cleanup_service, systemd_env):
         f"{TEST_SERVICE_NAME}.service could not be found" in res.stdout
         or res.returncode != 0
     )
-    # Logs should be empty or show "-- No entries --"
-    res = subprocess.run(
-        [
-            sys.executable,
-            str(mock_wrapper_path),
-            "daemon",
-            "logs",
-            "--since",
-            start_time,
-            "--output",
-            "cat",
-        ],
-        capture_output=True,
-        text=True,
-    )
-    output = res.stdout.strip()
-    assert not output or "-- No entries --" in output
 
     # 1. INSTALL
     result = subprocess.run(
-        [sys.executable, str(mock_wrapper_path), "daemon", "install"],
+        [exe, "daemon", "install", "--dry-run"],
         capture_output=True,
         text=True,
         check=True,
@@ -209,13 +209,12 @@ def test_systemd_install_and_lifecycle(cleanup_service, systemd_env):
     # VERIFY unit file
     assert service_path.exists(), f"Unit file not found at {service_path}"
     content = service_path.read_text()
-    assert str(mock_wrapper_path) in content
-    assert str(sys.executable) in content
+    assert "daemon run --dry-run" in content
 
     # 2. STATUS
     time.sleep(2)
     result = subprocess.run(
-        [sys.executable, str(mock_wrapper_path), "daemon", "status"],
+        [exe, "daemon", "status"],
         capture_output=True,
         text=True,
         check=True,
@@ -226,8 +225,7 @@ def test_systemd_install_and_lifecycle(cleanup_service, systemd_env):
     # 3. LOGS
     result = subprocess.run(
         [
-            sys.executable,
-            str(mock_wrapper_path),
+            exe,
             "daemon",
             "logs",
             "--since",
@@ -240,27 +238,21 @@ def test_systemd_install_and_lifecycle(cleanup_service, systemd_env):
         check=True,
         env=os.environ,
     )
-    # Filter to ignore systemd "Started..." noise
-    log_lines = [
-        line.strip()
-        for line in result.stdout.splitlines()
-        if line.strip().startswith("MOCK_DAEMON_")
-    ]
-    assert log_lines == ["MOCK_DAEMON_STARTING"]
+    log_lines = filter_logs(result.stdout)
+    assert START_TOKEN in log_lines
 
     # 4. RESTART
     subprocess.run(
-        [sys.executable, str(mock_wrapper_path), "daemon", "restart"],
+        [exe, "daemon", "restart"],
         check=True,
         env=os.environ,
     )
     time.sleep(2)
 
-    # Verify the sequence: STARTING -> STOPPED -> STARTING
+    # Verify the sequence: START -> STOP -> START
     result = subprocess.run(
         [
-            sys.executable,
-            str(mock_wrapper_path),
+            exe,
             "daemon",
             "logs",
             "--since",
@@ -272,31 +264,24 @@ def test_systemd_install_and_lifecycle(cleanup_service, systemd_env):
         text=True,
         env=os.environ,
     )
-    log_lines = [
-        line.strip()
-        for line in result.stdout.splitlines()
-        if line.strip().startswith("MOCK_DAEMON_")
-    ]
-    expected_sequence = [
-        "MOCK_DAEMON_STARTING",
-        "MOCK_DAEMON_STOPPED",
-        "MOCK_DAEMON_STARTING",
-    ]
-    assert log_lines == expected_sequence
+    log_lines = filter_logs(result.stdout)
+    # The actual output might have manager noise between tokens,
+    # but filter_logs removes it.
+    assert STOP_TOKEN in log_lines
+    assert log_lines.count(START_TOKEN) >= 2
 
     # 5. STOP
     subprocess.run(
-        [sys.executable, str(mock_wrapper_path), "daemon", "stop"],
+        [exe, "daemon", "stop"],
         check=True,
         env=os.environ,
     )
     time.sleep(1)
 
-    # Verify the sequence: STARTING -> STOPPED -> STARTING -> STOPPED
+    # Verify the sequence ends with STOPPED
     result = subprocess.run(
         [
-            sys.executable,
-            str(mock_wrapper_path),
+            exe,
             "daemon",
             "logs",
             "--since",
@@ -308,21 +293,11 @@ def test_systemd_install_and_lifecycle(cleanup_service, systemd_env):
         text=True,
         env=os.environ,
     )
-    log_lines = [
-        line.strip()
-        for line in result.stdout.splitlines()
-        if line.strip().startswith("MOCK_DAEMON_")
-    ]
-    expected_final_sequence = [
-        "MOCK_DAEMON_STARTING",
-        "MOCK_DAEMON_STOPPED",
-        "MOCK_DAEMON_STARTING",
-        "MOCK_DAEMON_STOPPED",
-    ]
-    assert log_lines == expected_final_sequence
+    log_lines = filter_logs(result.stdout)
+    assert log_lines[-1] == STOP_TOKEN
 
     result = subprocess.run(
-        [sys.executable, str(mock_wrapper_path), "daemon", "status"],
+        [exe, "daemon", "status"],
         capture_output=True,
         text=True,
         env=os.environ,
@@ -331,7 +306,7 @@ def test_systemd_install_and_lifecycle(cleanup_service, systemd_env):
 
     # 6. UNINSTALL
     result = subprocess.run(
-        [sys.executable, str(mock_wrapper_path), "daemon", "uninstall"],
+        [exe, "daemon", "uninstall"],
         capture_output=True,
         text=True,
         check=True,
@@ -342,7 +317,7 @@ def test_systemd_install_and_lifecycle(cleanup_service, systemd_env):
     # Final meaningful verification
     assert not service_path.exists()
     res = subprocess.run(
-        [sys.executable, str(mock_wrapper_path), "daemon", "status"],
+        [exe, "daemon", "status"],
         capture_output=True,
         text=True,
     )

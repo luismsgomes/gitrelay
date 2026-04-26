@@ -19,7 +19,7 @@ After=network.target
 
 [Service]
 Type=simple
-ExecStart="{python_exe}" "{script_path}" daemon run
+ExecStart={exec_start}
 Restart=always
 RestartSec=10
 Environment=PATH={path}
@@ -110,7 +110,7 @@ def daemon_reload():
     subprocess.run(["systemctl", "--user", "daemon-reload"], check=True)
 
 
-def install_service():
+def install_service(dry_run: bool = False):
     """Installs and enables the systemd user service."""
     from .main import get_executable_path
 
@@ -120,19 +120,17 @@ def install_service():
     service_name = get_service_name()
     service_file = user_config_dir / f"{service_name}.service"
 
-    # Python executable (current venv or system)
-    python_exe = sys.executable
-    # The actual project script
-    script_path = get_executable_path()
+    executable = get_executable_path()
+    # Pattern: "/path/to/bin/gitrelay" daemon run [--dry-run]
+    exec_start = f'"{executable}" daemon run'
+    if dry_run:
+        exec_start += " --dry-run"
 
     path_env = os.environ.get("PATH", "")
 
     try:
-        # Systemd unit files handle quotes for paths with spaces
         service_file.write_text(
-            SERVICE_TEMPLATE.format(
-                python_exe=python_exe, script_path=script_path, path=path_env
-            )
+            SERVICE_TEMPLATE.format(exec_start=exec_start, path=path_env)
         )
         daemon_reload()
         enable_service(now=True)

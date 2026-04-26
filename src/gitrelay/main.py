@@ -14,10 +14,10 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import logging
 import os
 import subprocess
 import sys
-import logging
 from pathlib import Path
 from typing import Optional
 
@@ -171,15 +171,23 @@ app.add_typer(daemon_app, name="daemon")
 
 
 @daemon_app.command("run")
-def daemon_run():
-    """Execute the daemon synchronization loop (internal use)."""
-    daemon.daemon_start()
+def daemon_run(
+    dry_run: bool = typer.Option(
+        False, "--dry-run", help="Simulator mode: don't perform actual sync."
+    )
+):
+    """Execute the daemon synchronization loop."""
+    daemon.daemon_start(dry_run=dry_run)
 
 
 @daemon_app.command("install")
-def daemon_install():
+def daemon_install(
+    dry_run: bool = typer.Option(
+        False, "--dry-run", help="Install service in dry-run (simulator) mode."
+    )
+):
     """Install and start the systemd user service."""
-    if systemd.install_service():
+    if systemd.install_service(dry_run=dry_run):
         print("[green]Successfully installed and started systemd service.[/green]")
     else:
         print("[red]Failed to install systemd service.[/red]")
@@ -344,7 +352,9 @@ def show_help(ctx: typer.Context, command: Optional[str] = typer.Argument(None))
                             full_cmd = f"{prefix}{sub_name}"
                             s_help = sub_cmd.help or sub_cmd.short_help or ""
                             # Format line with dynamic padding
-                            cmd_str = f"  [green]gitrelay {full_cmd:<{max_width}}[/green]"
+                            cmd_str = (
+                                f"  [green]gitrelay {full_cmd:<{max_width}}[/green]"
+                            )
                             print(f"{cmd_str} [dim]{s_help}[/dim]")
 
                 print_group_commands(cmd, prefix=f"{name} ")

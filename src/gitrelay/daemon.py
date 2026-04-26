@@ -1,4 +1,21 @@
+# gitrelay: Sync git repos with smart scheduling and systemd integration.
+# Copyright (C) 2026  Luís Gomes
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
 import logging
+import signal
 import sys
 import time
 
@@ -9,8 +26,16 @@ from .sync_jobs import SyncJob, get_sync_jobs
 logger = logging.getLogger(__name__)
 
 
-def daemon_start():
+def daemon_start(dry_run: bool = False):
     """Starts the background synchronization daemon loop."""
+
+    def handle_sigterm(signum, frame):
+        logger.info("Daemon stopping (received SIGTERM)")
+        sys.exit(0)
+
+    signal.signal(signal.SIGTERM, handle_sigterm)
+
+    logger.info("Daemon starting...")
     try:
         config = MainConfig.load()
 
@@ -40,14 +65,23 @@ def daemon_start():
 
                 if isinstance(job, SyncJob):
                     if config.sync_enabled:
-                        job.run()
+                        if dry_run:
+                            logger.info("[DRY RUN] Would run %s", job)
+                        else:
+                            job.run()
                     else:
                         jobs = [j for j in jobs if not isinstance(j, SyncJob)]
                 elif isinstance(job, ScanJob):
                     if config.scan_enabled:
-                        job.run()
+                        if dry_run:
+                            logger.info("[DRY RUN] Would run %s", job)
+                        else:
+                            job.run()
                     else:
                         jobs = [j for j in jobs if not isinstance(j, ScanJob)]
+
+            if dry_run:
+                time.sleep(config.idle_sleep_secs)
 
     except KeyboardInterrupt:
         logger.info("Daemon stopping (interrupted by user)")
