@@ -163,14 +163,17 @@ class SyncBaseConfig(BaseModel):
         description="A name that will be used to refer to the sync target."
     )
 
+    def get_sync_direction(self) -> SyncDirection:
+        """Returns the synchronization direction for this target."""
+        raise NotImplementedError("Subclasses must implement get_sync_direction")
+
 
 class LocalRepoSyncBaseConfig(SyncBaseConfig):
     local_repo_path: Path = Field(description="Path to the local repository.")
 
 
 class LocalRepoSyncConfig(LocalRepoSyncBaseConfig):
-    @property
-    def sync_direction(self) -> SyncDirection:
+    def get_sync_direction(self) -> SyncDirection:
         "Synchronization direction for local repositories (always FETCH)."
         # cannot push to normal (non-bare) repos
         return SyncDirection.FETCH
@@ -180,6 +183,9 @@ class LocalBareRepoSyncConfig(LocalRepoSyncBaseConfig):
     sync_direction: SyncDirection = Field(
         description="Synchronization direction for local bare repositories."
     )
+
+    def get_sync_direction(self) -> SyncDirection:
+        return self.sync_direction
 
 
 class RemoteHostConfig(BaseModel):
@@ -202,6 +208,13 @@ class RemoteHubSyncConfig(SyncBaseConfig):
     remote_host_config: RemoteHostConfig = Field(
         description="Configuration for the remote host."
     )
+    sync_direction: SyncDirection = Field(
+        default=SyncDirection.BOTH,
+        description="Synchronization direction for remote hubs.",
+    )
+
+    def get_sync_direction(self) -> SyncDirection:
+        return self.sync_direction
 
 
 class LocalHubConfig(BaseModel):
