@@ -106,6 +106,13 @@ class BaseConfigFile(BaseModel):
 
 
 class MainConfig(BaseConfigFile):
+    """
+    Main configuration for the gitrelay tool.
+
+    Contains global settings like enabling/disabling sync and scan jobs,
+    default synchronization intervals, and directory locations.
+    """
+
     sync_enabled: bool = Field(
         default=True,
         description="Whether the background synchronization is enabled.",
@@ -115,7 +122,7 @@ class MainConfig(BaseConfigFile):
         description="Whether automatic hub scanning is enabled.",
     )
     local_hubs_dir: Path = Field(
-        default=Path("~/githubs"),
+        default_factory=lambda: Path("~/githubs"),
         description="Directory where local hubs are stored.",
     )
     local_repos_dirs: list[Path] = Field(
@@ -153,6 +160,8 @@ class MainConfig(BaseConfigFile):
 
 
 class SyncBaseConfig(BaseModel):
+    """Base configuration for all synchronization targets."""
+
     sync_interval_secs: int = Field(
         description="Interval between synchronization runs in seconds."
     )
@@ -169,10 +178,14 @@ class SyncBaseConfig(BaseModel):
 
 
 class LocalRepoSyncBaseConfig(SyncBaseConfig):
+    """Common configuration for all local synchronization targets."""
+
     local_repo_path: Path = Field(description="Path to the local repository.")
 
 
 class LocalRepoSyncConfig(LocalRepoSyncBaseConfig):
+    """Configuration for a local non-bare repository synchronization target."""
+
     def get_sync_direction(self) -> SyncDirection:
         "Synchronization direction for local repositories (always FETCH)."
         # cannot push to normal (non-bare) repos
@@ -180,6 +193,8 @@ class LocalRepoSyncConfig(LocalRepoSyncBaseConfig):
 
 
 class LocalBareRepoSyncConfig(LocalRepoSyncBaseConfig):
+    """Configuration for a local bare repository synchronization target."""
+
     sync_direction: SyncDirection = Field(
         description="Synchronization direction for local bare repositories."
     )
@@ -189,6 +204,8 @@ class LocalBareRepoSyncConfig(LocalRepoSyncBaseConfig):
 
 
 class RemoteHostConfig(BaseModel):
+    """Configuration for a remote host accessible via SSH."""
+
     remote_host_name: str = Field(
         description="Name of the remote host as defined in SSH configuration."
     )
@@ -204,6 +221,8 @@ class RemoteHostConfig(BaseModel):
 
 
 class RemoteHubSyncConfig(SyncBaseConfig):
+    """Configuration for a remote hub synchronization target."""
+
     remote_hub_name: Path = Field(description="Name of the remote hub.")
     remote_host_config: RemoteHostConfig = Field(
         description="Configuration for the remote host."
@@ -218,6 +237,8 @@ class RemoteHubSyncConfig(SyncBaseConfig):
 
 
 class LocalHubConfig(BaseModel):
+    """Configuration for a local hub and its associated synchronization targets."""
+
     model_config = ConfigDict(validate_assignment=True)
 
     hub_name: str = Field(description="Name of the local hub.")
@@ -275,8 +296,11 @@ class LocalHubConfig(BaseModel):
 
 
 class LocalHubsConfig(BaseConfigFile):
+    """Configuration file containing all local hubs managed by gitrelay."""
+
     local_hubs: list[LocalHubConfig] = Field(
-        description="List of all local hubs managed by gitrelay."
+        default_factory=list,
+        description="List of all local hubs managed by gitrelay.",
     )
 
     @classmethod
@@ -285,8 +309,11 @@ class LocalHubsConfig(BaseConfigFile):
 
 
 class HostsConfig(BaseConfigFile):
+    """Configuration file containing all configured remote hosts."""
+
     remote_hosts: list[RemoteHostConfig] = Field(
-        description="List of all configured remote hosts for synchronization."
+        default_factory=list,
+        description="List of all configured remote hosts for synchronization.",
     )
 
     @classmethod

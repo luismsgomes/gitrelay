@@ -154,21 +154,26 @@ def config_init(
         False, "--force", "-f", help="Overwrite existing configuration."
     )
 ):
-    """Initialize a default configuration file."""
-    from .config import MainConfig
+    """Initialize default configuration files."""
+    from .config import HostsConfig, LocalHubsConfig, MainConfig
 
-    path = MainConfig.get_config_path().expanduser()
-    if path.exists() and not force:
-        print(f"[yellow]Configuration already exists at {path}[/yellow]")
-        print("Use --force to overwrite it with defaults.")
-        raise typer.Exit(code=1)
+    configs = [
+        ("Main configuration", MainConfig),
+        ("Local hubs configuration", LocalHubsConfig),
+        ("Remote hosts configuration", HostsConfig),
+    ]
 
-    try:
-        MainConfig().save()
-        print(f"[green]Successfully initialized configuration at {path}[/green]")
-    except Exception as e:
-        print(f"[red]Failed to initialize configuration: {e}[/red]")
-        raise typer.Exit(code=1)
+    for label, cls in configs:
+        path = cls.get_config_path().expanduser()
+        if path.exists() and not force:
+            print(f"[yellow]{label} already exists at {path}[/yellow]")
+            continue
+
+        try:
+            cls().save()
+            print(f"[green]Successfully initialized {label} at {path}[/green]")
+        except Exception as e:
+            print(f"[red]Failed to initialize {label}: {e}[/red]")
 
 
 # --- Daemon Group ---
