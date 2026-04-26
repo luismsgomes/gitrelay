@@ -11,6 +11,10 @@ logger = logging.getLogger(__name__)
 class ScanJob(BaseJob):
     """Scanning job implementation."""
 
+    def __str__(self) -> str:
+        """Returns a string representation of the scan job."""
+        return "scan"
+
     def secs_until_next_run(self) -> int:
         """Returns the number of seconds until the job's next scheduled run."""
         return 3600

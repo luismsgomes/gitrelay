@@ -17,6 +17,7 @@ from .config import (
     LocalRepoSyncConfig,
     RemoteHubSyncConfig,
     SyncBaseConfig,
+    SyncDirection,
 )
 from .job import BaseJob
 
@@ -109,6 +110,14 @@ class SyncJob(BaseJob, Generic[T]):
         self.local_hub_config = local_hub_config
         self.sync_target_config = sync_target_config
         self.last_result: Optional[SyncResult] = SyncResult.load_last(self.log_path)
+
+    def __str__(self) -> str:
+        """Returns a string representation of the sync job."""
+        direction = self.sync_target_config.get_sync_direction()
+        arrow = "<--" if direction == SyncDirection.FETCH else "<->"
+        hub = self.local_hub_config.hub_name
+        target = self.sync_target_config.target_alias
+        return f"sync {hub}{arrow}{target}"
 
     @property
     def log_path(self) -> Path:
