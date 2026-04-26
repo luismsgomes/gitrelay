@@ -149,7 +149,7 @@ class MainConfig(BaseConfigFile):
 
     @classmethod
     def get_config_path(cls) -> Path:
-        return Path("~/.config/gitrelay/tool.json")
+        return Path("~/.config/gitrelay/main.json")
 
 
 class SyncBaseConfig(BaseModel):

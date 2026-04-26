@@ -14,78 +14,127 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import os
 import subprocess
+import sys
+import logging
+from pathlib import Path
 from typing import Optional
 
 import typer
 from rich import print
 
-from . import daemon, install
+from . import daemon, systemd
+
+logger = logging.getLogger(__name__)
 
 app = typer.Typer(
     help="Git Relay: Synchronize git repositories with smart scheduling.",
 )
 
-# --- Install Group ---
-install_app = typer.Typer(help="Manage Git Relay installation and system integration.")
-app.add_typer(install_app, name="install")
+
+# --- Installation Logic (formerly install.py) ---
 
 
-@install_app.command("symlink")
-def install_symlink():
-    """Create ~/.local/bin/gitrelay symlink."""
-    if install.install_cli_symlink():
+def get_executable_path() -> str:
+    """Returns the absolute path to the current gitrelay executable."""
+    executable = subprocess.run(
+        ["which", "gitrelay"], capture_output=True, text=True
+    ).stdout.strip()
+
+    if not executable:
+        # Fallback to absolute path of the script if which fails
+        executable = str(Path(sys.prefix) / "bin" / "gitrelay")
+        if not Path(executable).exists():
+            executable = str(Path(sys.argv[0]).absolute())
+
+    return executable
+
+
+def install_cli_symlink() -> bool:
+    """Creates ~/.local/bin/gitrelay symlink pointing to the current executable."""
+    target = Path("~/.local/bin/gitrelay").expanduser()
+    current_exe = Path(get_executable_path())
+
+    try:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        if target.exists() or target.is_symlink():
+            target.unlink()
+        target.symlink_to(current_exe)
+        logger.info("Successfully created symlink: %s -> %s", target, current_exe)
+        return True
+    except Exception as e:
+        logger.error("Error creating symlink: %s", e)
+        return False
+
+
+def check_cli_symlink() -> bool:
+    """Checks if the CLI symlink is correctly installed."""
+    target = Path("~/.local/bin/gitrelay").expanduser()
+    if not (target.exists() or target.is_symlink()):
+        return False
+
+    current_exe = get_executable_path()
+    return os.path.realpath(target) == str(current_exe)
+
+
+def uninstall_cli_symlink() -> bool:
+    """Removes ~/.local/bin/gitrelay symlink."""
+    target = Path("~/.local/bin/gitrelay").expanduser()
+    try:
+        if target.exists() or target.is_symlink():
+            target.unlink()
+            logger.info("Removed symlink: %s", target)
+            return True
+        else:
+            logger.warning("Symlink not found: %s", target)
+            return False
+    except Exception as e:
+        logger.error("Error removing symlink: %s", e)
+        return False
+
+
+# --- CLI Group ---
+cli_app = typer.Typer(help="Manage the local CLI environment and shell integration.")
+app.add_typer(cli_app, name="cli")
+
+
+@cli_app.command("install")
+def cli_install():
+    """Install CLI symlink and shell completion."""
+    # 1. Install Symlink
+    if install_cli_symlink():
         print("[green]Successfully installed CLI symlink.[/green]")
     else:
         print("[red]Failed to install CLI symlink.[/red]")
-        raise typer.Exit(code=1)
 
-
-@install_app.command("service")
-def install_service():
-    """Install and start the systemd user service."""
-    if install.install_systemd_service():
-        print("[green]Successfully installed and started systemd service.[/green]")
-    else:
-        print("[red]Failed to install systemd service.[/red]")
-        raise typer.Exit(code=1)
-
-
-@install_app.command("bash-completion")
-def install_bash_completion():
-    """Install bash completion for gitrelay."""
-    # We must use the 'gitrelay' command name to ensure Typer generates
-    # clean completion filenames (gitrelay.sh)
-    exe = install.get_executable_path()
+    # 2. Install Completion
+    exe = get_executable_path()
     try:
-        # Use the absolute path to the gitrelay executable
         subprocess.run([exe, "--install-completion"], check=True)
+        print("[green]Successfully installed shell completion.[/green]")
     except subprocess.CalledProcessError as e:
         print(f"[red]Error installing completion: {e}[/red]")
-        raise typer.Exit(code=1)
 
 
-# --- Uninstall Group ---
-uninstall_app = typer.Typer(help="Remove Git Relay components from the system.")
-app.add_typer(uninstall_app, name="uninstall")
-
-
-@uninstall_app.command("symlink")
-def uninstall_symlink():
-    """Remove ~/.local/bin/gitrelay symlink."""
-    if install.uninstall_cli_symlink():
+@cli_app.command("uninstall")
+def cli_uninstall():
+    """Uninstall CLI symlink and show completion removal instructions."""
+    # 1. Uninstall Symlink
+    if uninstall_cli_symlink():
         print("[green]Successfully removed CLI symlink.[/green]")
     else:
         print("[yellow]CLI symlink not found or could not be removed.[/yellow]")
 
-
-@uninstall_app.command("service")
-def uninstall_service():
-    """Disable and remove the systemd user service."""
-    if install.uninstall_systemd_service():
-        print("[green]Successfully uninstalled systemd service.[/green]")
-    else:
-        print("[yellow]Systemd service not found or could not be removed.[/yellow]")
+    # 2. Instructions for Completion
+    home = Path.home()
+    completion_script = home / ".bash_completions" / "gitrelay.sh"
+    print("\n[bold]Manual Completion Uninstall Instructions:[/bold]")
+    print("1. Open your shell config file (e.g., [bold]~/.bashrc[/bold]).")
+    print("2. Remove the line that sources the gitrelay completion script:")
+    print(f"   [dim]source '{completion_script}'[/dim]")
+    print(f"3. Delete the script file: [bold]{completion_script}[/bold]")
+    print("4. Restart your terminal.\n")
 
 
 # --- Daemon Group ---
@@ -93,21 +142,104 @@ daemon_app = typer.Typer(help="Control the background synchronization daemon.")
 app.add_typer(daemon_app, name="daemon")
 
 
+@daemon_app.command("run")
+def daemon_run():
+    """Execute the daemon synchronization loop (internal use)."""
+    daemon.daemon_start()
+
+
+@daemon_app.command("install")
+def daemon_install():
+    """Install and start the systemd user service."""
+    if systemd.install_service():
+        print("[green]Successfully installed and started systemd service.[/green]")
+    else:
+        print("[red]Failed to install systemd service.[/red]")
+        raise typer.Exit(code=1)
+
+
+@daemon_app.command("uninstall")
+def daemon_uninstall():
+    """Disable and remove the systemd user service."""
+    if systemd.uninstall_service():
+        print("[green]Successfully uninstalled systemd service.[/green]")
+    else:
+        print("[yellow]Systemd service not found or could not be removed.[/yellow]")
+
+
 @daemon_app.command("start")
 def daemon_start():
-    """Start the background synchronization daemon."""
-    print("[green]Daemon started.[/green]")
-    daemon.daemon_start()
+    """Start the background synchronization daemon via systemd."""
+    try:
+        systemd.start_service()
+        print("[green]Daemon service started.[/green]")
+    except Exception as e:
+        print(f"[red]Error starting daemon: {e}[/red]")
+        raise typer.Exit(code=1)
+
+
+@daemon_app.command("stop")
+def daemon_stop():
+    """Stop the background synchronization daemon via systemd."""
+    try:
+        systemd.stop_service()
+        print("[green]Daemon service stopped.[/green]")
+    except Exception as e:
+        print(f"[red]Error stopping daemon: {e}[/red]")
+        raise typer.Exit(code=1)
+
+
+@daemon_app.command("restart")
+def daemon_restart():
+    """Restart the background synchronization daemon via systemd."""
+    try:
+        systemd.restart_service()
+        print("[green]Daemon service restarted.[/green]")
+    except Exception as e:
+        print(f"[red]Error restarting daemon: {e}[/red]")
+        raise typer.Exit(code=1)
+
+
+@daemon_app.command("enable")
+def daemon_enable():
+    """Enable the background synchronization daemon to start on login."""
+    try:
+        systemd.enable_service(now=False)
+        print("[green]Daemon service enabled.[/green]")
+    except Exception as e:
+        print(f"[red]Error enabling daemon: {e}[/red]")
+        raise typer.Exit(code=1)
+
+
+@daemon_app.command("disable")
+def daemon_disable():
+    """Disable the background synchronization daemon from starting on login."""
+    try:
+        systemd.disable_service(now=False)
+        print("[green]Daemon service disabled.[/green]")
+    except Exception as e:
+        print(f"[red]Error disabling daemon: {e}[/red]")
+        raise typer.Exit(code=1)
 
 
 @daemon_app.command("logs")
 def daemon_logs(
-    follow: bool = typer.Option(False, "--follow", "-f", help="Follow log output.")
+    follow: bool = typer.Option(False, "--follow", "-f", help="Follow log output."),
+    since: Optional[str] = typer.Option(
+        None, "--since", "-s", help="Show logs since a specific time (e.g. '1h ago')."
+    ),
+    output: str = typer.Option(
+        "short", "--output", "-o", help="Journalctl output format (short, cat, etc.)."
+    ),
 ):
     """View the daemon logs via journalctl."""
-    cmd = ["journalctl", "--user", "-u", f"{install.SERVICE_NAME}.service"]
+    cmd = ["journalctl", "--user", "-u", f"{systemd.get_service_name()}.service"]
     if follow:
         cmd.append("-f")
+    if since:
+        cmd.extend(["--since", since])
+    if output:
+        cmd.extend(["--output", output])
     try:
         subprocess.run(cmd)
     except KeyboardInterrupt:
@@ -119,9 +251,7 @@ def daemon_logs(
 def daemon_status():
     """Show the daemon service status via systemctl."""
     try:
-        subprocess.run(
-            ["systemctl", "--user", "status", f"{install.SERVICE_NAME}.service"]
-        )
+        print(systemd.get_service_status())
     except Exception as e:
         print(f"[red]Error checking status: {e}[/red]")
         raise typer.Exit(code=1)
@@ -146,26 +276,50 @@ def show_help(ctx: typer.Context, command: Optional[str] = typer.Argument(None))
         print("\n[bold]Git Relay Command Reference[/bold]")
         print("Usage: [bold]gitrelay[/bold] <command> <subcommand>\n")
 
-        # 1. Print General Commands (like help itself)
+        # 1. Print General Commands
         help_cmd = main_click_group.get_command(ctx, "help")
         if help_cmd:
             h_text = help_cmd.help or ""
-            print(f"  [green]gitrelay help[/green]{' ' * 9} [dim]{h_text}[/dim]\n")
+            print(f"  [green]gitrelay help[/green]{' ' * 13} [dim]{h_text}[/dim]\n")
 
-        # 2. Print Categorized Groups
+        # 2. Calculate max width for alignment
+        def get_commands(click_group, prefix=""):
+            cmds = []
+            for name, cmd in click_group.commands.items():
+                if name == "help":
+                    continue
+                if isinstance(cmd, click.Group):
+                    cmds.extend(get_commands(cmd, prefix=f"{prefix}{name} "))
+                else:
+                    cmds.append(f"{prefix}{name}")
+            return cmds
+
+        all_cmds = get_commands(main_click_group)
+        max_width = max(len(c) for c in all_cmds) if all_cmds else 20
+
+        # 3. Print Categorized Groups
         for name, cmd in sorted(main_click_group.commands.items()):
             if name == "help":
                 continue
 
             if isinstance(cmd, click.Group):
                 header = cmd.help or f"Manage {name} commands"
-                print(f"[italic cyan]{header}:[/italic cyan]")
-                for sub_name, sub_cmd in sorted(cmd.commands.items()):
-                    full_cmd = f"{name} {sub_name}"
-                    sub_help = sub_cmd.help or sub_cmd.short_help or ""
-                    print(
-                        f"  [green]gitrelay {full_cmd:18}[/green] [dim]{sub_help}[/dim]"
-                    )
+                # Strip trailing period ONLY for header use
+                header = header.rstrip(".") + ":"
+                print(f"[italic cyan]{header}[/italic cyan]")
+
+                def print_group_commands(click_group, prefix):
+                    for sub_name, sub_cmd in sorted(click_group.commands.items()):
+                        if isinstance(sub_cmd, click.Group):
+                            print_group_commands(sub_cmd, prefix=f"{prefix}{sub_name} ")
+                        else:
+                            full_cmd = f"{prefix}{sub_name}"
+                            s_help = sub_cmd.help or sub_cmd.short_help or ""
+                            # Format line with dynamic padding
+                            cmd_str = f"  [green]gitrelay {full_cmd:<{max_width}}[/green]"
+                            print(f"{cmd_str} [dim]{s_help}[/dim]")
+
+                print_group_commands(cmd, prefix=f"{name} ")
                 print()
 
 
