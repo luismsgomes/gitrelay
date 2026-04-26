@@ -137,6 +137,34 @@ def cli_uninstall():
     print("4. Restart your terminal.\n")
 
 
+# --- Config Group ---
+config_app = typer.Typer(help="Manage Git Relay configuration.")
+app.add_typer(config_app, name="config")
+
+
+@config_app.command("init")
+def config_init(
+    force: bool = typer.Option(
+        False, "--force", "-f", help="Overwrite existing configuration."
+    )
+):
+    """Initialize a default configuration file."""
+    from .config import MainConfig
+
+    path = MainConfig.get_config_path().expanduser()
+    if path.exists() and not force:
+        print(f"[yellow]Configuration already exists at {path}[/yellow]")
+        print("Use --force to overwrite it with defaults.")
+        raise typer.Exit(code=1)
+
+    try:
+        MainConfig().save()
+        print(f"[green]Successfully initialized configuration at {path}[/green]")
+    except Exception as e:
+        print(f"[red]Failed to initialize configuration: {e}[/red]")
+        raise typer.Exit(code=1)
+
+
 # --- Daemon Group ---
 daemon_app = typer.Typer(help="Control the background synchronization daemon.")
 app.add_typer(daemon_app, name="daemon")
