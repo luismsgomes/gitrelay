@@ -42,9 +42,6 @@ def setup_logging():
     )
 
 
-# --- Installation Logic (formerly install.py) ---
-
-
 def get_executable_path() -> str:
     """Returns the absolute path to the current gitrelay executable."""
     executable = subprocess.run(
