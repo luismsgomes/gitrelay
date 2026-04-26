@@ -24,7 +24,7 @@ from typing import Optional
 import typer
 from rich import print
 
-from . import daemon, systemd
+from . import daemon, hub, systemd
 
 logger = logging.getLogger(__name__)
 
@@ -141,6 +141,32 @@ def cli_uninstall():
     print(f"   [dim]source '{completion_script}'[/dim]")
     print(f"3. Delete the script file: [bold]{completion_script}[/bold]")
     print("4. Restart your terminal.\n")
+
+
+# --- Hub Group ---
+hub_app = typer.Typer(help="Manage local hubs (bare git repositories).")
+app.add_typer(hub_app, name="hub")
+
+
+@hub_app.command("init")
+def hub_init(
+    name: str = typer.Argument(..., help="The name of the hub to initialize."),
+):
+    """Initialize a new local bare git repository (hub)."""
+    try:
+        path = hub.init_hub(name)
+        print(f"[green]Successfully initialized hub: {name}[/green]")
+        print(f"[dim]Path: {path}[/dim]")
+    except FileNotFoundError:
+        print("[red]Main configuration not found.[/red]")
+        print("Please run [bold]gitrelay config init[/bold] first.")
+        raise typer.Exit(code=1)
+    except FileExistsError as e:
+        print(f"[yellow]{e}[/yellow]")
+        raise typer.Exit(code=1)
+    except Exception as e:
+        print(f"[red]Failed to initialize hub: {e}[/red]")
+        raise typer.Exit(code=1)
 
 
 # --- Config Group ---
