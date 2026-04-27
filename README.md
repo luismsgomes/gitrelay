@@ -9,15 +9,18 @@
 
 A tool to synchronize git repos with smart scheduling and systemd integration.
 
-Git Relay provides both a command-line interface and an interactive shell interface for managing your git repository synchronization.
+**Git Relay** is a lightweight, non-intrusive tool for synchronizing and backing up your Git repositories. It maintains a central directory of "hubs" (defaulting to `~/githubs`) that serves as a reliable backup for repositories scattered across your local machine and facilitates seamless development across multiple machines.
+
+By automating periodic synchronization, Git Relay gives you peace of mind without getting in your way. It integrates with `systemd` at the user level (no root required) and lets you decide exactly which repositories are synced and how frequently.
 
 ## Features
 
-- **Hub-based Synchronization:** Create "Hubs" to periodically sync commits between repos on same machine.
+- **Hub-based Synchronization:** Create "Hubs" to periodically fetch commits from repos on the same machine, and optionally sync with remote hubs.
 - **Local & Remote Support:** Sync local hubs to remote hubs over SSH.
-- **Smart Scanning:** Automatically discovers repos in configured directories.
+- **Smart Scanning:** Automatically discovers repos in configured directories and facilitates creation of new hubs for them.
 - **Systemd Integration:** Runs sync daemon as systemd service.
-- **Interactive Shell:** A dedicated shell interface for quick management.
+- **Interactive Shell:** Provides a dedicated shell interface for quick management.
+- **Command Line Interface:** Gives access to all functionality enabling integration in scripts.
 
 ## Installation
 
