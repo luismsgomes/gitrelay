@@ -4,10 +4,11 @@ import logging
 import shutil
 import subprocess
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Tuple
 
 from .config import (
     LocalBareRepoSyncConfig,
+    LocalHubConfig,
     LocalHubsConfig,
     LocalRepoSyncConfig,
     MainConfig,
@@ -17,33 +18,48 @@ from .config import (
 logger = logging.getLogger(__name__)
 
 
-def init_hub(hub_name: str) -> Path:
+def init_hub(hub_name: str) -> Tuple[Path, bool]:
     """
-    Initializes a new hub.
+    Initializes a new hub and registers it in config.
 
     Args:
         hub_name: The name of the hub.
 
     Returns:
-        The Path to the newly created hub.
+        A tuple of (Path to the hub, already_existed_on_disk bool).
 
     Raises:
         FileNotFoundError: If the main configuration is not found.
-        FileExistsError: If the hub directory already exists.
+        FileExistsError: If the hub is already registered in configuration.
         subprocess.CalledProcessError: If the 'git init' command fails.
     """
+    # 1. Check configuration
+    hubs_config = LocalHubsConfig.load()
+    if any(h.hub_name == hub_name for h in hubs_config.local_hubs):
+        raise FileExistsError(
+            f"Hub '{hub_name}' is already registered in configuration."
+        )
+
     config = MainConfig.load()
     hub_dir = config.local_hubs_dir.expanduser()
     hub_path = hub_dir / f"{hub_name}.git"
 
-    if hub_path.exists():
-        raise FileExistsError(f"Hub already exists at {hub_path}")
+    already_existed = hub_path.exists()
+    if not already_existed:
+        # 2. Initialize the physical repository
+        hub_path.mkdir(parents=True, exist_ok=True)
+        subprocess.run(["git", "init", "--bare", str(hub_path)], check=True)
 
-    hub_path.mkdir(parents=True, exist_ok=True)
-    subprocess.run(["git", "init", "--bare", str(hub_path)], check=True)
+    # 3. Register in configuration
+    hubs_config.local_hubs.append(LocalHubConfig(hub_name=hub_name))
+    hubs_config.save()
 
-    logger.info("Successfully initialized hub: %s at %s", hub_name, hub_path)
-    return hub_path
+    if already_existed:
+        logger.info("Registered existing hub: %s at %s", hub_name, hub_path)
+    else:
+        logger.info("Successfully initialized hub: %s at %s", hub_name, hub_path)
+
+    return hub_path, already_existed
 
 
 def delete_hub(hub_name: str) -> Path:
@@ -59,6 +75,17 @@ def delete_hub(hub_name: str) -> Path:
     Raises:
         FileNotFoundError: If the main configuration or the hub itself is not found.
     """
+    # 1. Remove from configuration
+    hubs_config = LocalHubsConfig.load()
+    original_count = len(hubs_config.local_hubs)
+    hubs_config.local_hubs = [h for h in hubs_config.local_hubs if h.hub_name != hub_name]
+
+    if len(hubs_config.local_hubs) == original_count:
+        logger.warning("Hub '%s' was not found in configuration.", hub_name)
+    else:
+        hubs_config.save()
+
+    # 2. Determine paths
     config = MainConfig.load()
     hub_dir = config.local_hubs_dir.expanduser()
     hub_path = hub_dir / f"{hub_name}.git"
@@ -66,10 +93,10 @@ def delete_hub(hub_name: str) -> Path:
     if not hub_path.exists():
         raise FileNotFoundError(f"Hub '{hub_name}' not found at {hub_path}")
 
-    # 1. Remove the repository directory
+    # 3. Remove the repository directory
     shutil.rmtree(hub_path)
 
-    # 2. Remove associated sync logs if they exist
+    # 4. Remove associated sync logs if they exist
     log_dir = Path("~/.cache/gitrelay/logs/sync").expanduser() / hub_name
     if log_dir.exists():
         shutil.rmtree(log_dir)

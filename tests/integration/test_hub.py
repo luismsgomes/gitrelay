@@ -78,7 +78,7 @@ def test_hub_init_already_exists(mock_home):
     )
 
     assert result.returncode == 1
-    assert "Hub already exists" in result.stdout
+    assert "already registered in configuration" in result.stdout
 
 
 def test_hub_delete_with_y_flag(mock_home):
