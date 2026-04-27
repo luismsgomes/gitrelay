@@ -36,37 +36,31 @@ source ~/.local/share/gitrelay-venv/bin/activate
 pip install gitrelay
 ```
 
-### 2. Set up the environment
+### 2. Initial Git Relay setup
 Once installed and with the virtual environment still active, run these commands to complete the setup:
 
-- **Install CLI links:** Symlinks `gitrelay` to `~/.local/bin` (ensuring it's available without activating the venv) and installs bash autocompletion.
-  ```bash
-  gitrelay cli install
-  ```
-- **Initialize configuration:** Initializes configuration with default values.
-  ```bash
-  gitrelay config init
-  ```
-- **Install the daemon:** Sets up a `systemd` user service to run the synchronization daemon automatically.
-  ```bash
-  gitrelay daemon install
-  ```
+```bash
+gitrelay cli install
+gitrelay config init
+gitrelay daemon install
+```
 
-> **Note:** To ensure the background daemon continues running even when you are logged out, you should enable "linger" for your user account:
+**What these commands do:**
+- **cli install:** Symlinks `gitrelay` to `~/.local/bin` (making it available globally without activating the venv) and installs bash autocompletion.
+- **config init:** Initializes your configuration with default values in `~/.config/gitrelay/`.
+- **daemon install:** Sets up a `systemd` user service to run the synchronization daemon automatically.
+
+> **Note:** To ensure the background daemon continues running even when you are logged out, you should enable "linger" for your user account (requires root privileges):
 > ```bash
-> loginctl enable-linger $USER
+> sudo loginctl enable-linger $USER
 > ```
 
 ## Quick Start
 
 *Note: Git Relay is currently in active early development. Usage examples and documentation will be expanded as the CLI matures.*
 
-## Concepts and Terminology
+## Hubs
 
-<details>
-<summary>Click to expand details about Hubs, Discovery, and Naming Rules</summary>
-
-### Hub
 A **Hub** is a bare git repository managed exclusively by `gitrelay`. It acts as the central synchronization point for one or more **Local Repos** and potentially other **Remote Hubs** on different hosts.
 
 - **Local Hub:** A hub located on the local machine, within the configured `hub_dir` (default: `~/githubs`).
@@ -77,16 +71,10 @@ A **Hub** is a bare git repository managed exclusively by `gitrelay`. It acts as
 - **Hub Path:** A hub's path is `hub_dir` + `Hub Name` + `.git`.
      - *Example:* `work/foo-bar` -> `~/githubs/work/foo-bar.git`.
 
-#### Discovery and Scanning
-Git Relay is designed to give you absolute control; **synchronization jobs are never created automatically.** Instead, Git Relay uses an optional scanning process to simplify manual configuration.
+<details>
+<summary>Click to expand technical details about Hub Naming Rules</summary>
 
-- **Intelligent Suggestions:** By periodically scanning local and remote directories, the tool identifies repositories and hubs with shared commit lineage or matching names.
-- **Effortless Setup:** Discovered but unsynced hubs and repos are listed within the interface, allowing you to pick targets easily without having to navigate the filesystem manually.
-- **Comprehensive Logging:** Scan data is stored in `~/.cache/gitrelay/scan/`. Newly discovered or missing repos and hubs are logged in `log.jsonl`, while
-  complete lists of known repos and hubs are kept in `local-repos.jsonl`, `local-hubs.jsonl`, and `remote-hubs.jsonl`.
-
-
-#### Hub Naming Rules
+### Hub Naming Rules
 A **Logical Hub Name** must:
 - Use alphanumeric characters, `-`, `_`, `.`, and `/`.
 - No path component (part between slashes) can begin or end with a dot (`.`), hyphen (`-`), or underscore (`_`)
@@ -96,6 +84,41 @@ A **Logical Hub Name** must:
 - Not start/end with `/` or contain `//`.
     - *Invalid:* `work//foo-bar`, `/work/foo-bar`, `work/foo-bar/`
 - Respect `max_namespace_depth` (default: 2) and `max_hub_name_length` (default: 80).
+
+</details>
+
+## The Relay Algorithm
+
+Git Relay is built around the concept of **Relay Sequences**—the automated propagation of commits across your connected repositories and hubs.
+
+### The Push-Relay
+When you are ready to share or back up your work, you initiate a **Push-Relay** via `git relay push` (or `gitrelay push`):
+1. **Local Handoff:** Your commits are pushed from your working repository to your **Local Hub**.
+2. **Automated Forwarding:** The Git Relay daemon detects the update and "relays" the new commits to all configured **Remote Hubs**.
+3. **Synchronization:** Your work is now safely backed up and available for other machines to pull.
+
+### The Pull-Relay
+To ensure you are working with the most recent state, you initiate a **Pull-Relay** via `git relay pull` (or `gitrelay pull`):
+1. **Upstream Fetch:** Git Relay first reaches out to all configured **Remote Hubs** and fetches any new commits into your **Local Hub**.
+2. **Local Update:** Once the Local Hub is fresh, Git Relay performs a standard `git pull` from the Hub into your active repository.
+3. **Consolidation:** Your local repository is now synchronized with the entire relay network.
+
+*Note: These operations specifically target the "hub" remote. By using the `relay` alias, your standard Git workflow remains intact while benefiting from multi-host synchronization.*
+
+## Periodic Synchronization
+
+In addition to the explicit Relay Sequences, Git Relay provides background periodic synchronization. This is essential for machines behind NAT that cannot receive incoming Push-Relays, and as an automated safety net to keep your local environment up-to-date.
+
+Periodic synchronization is particularly useful when working on remote servers. For example, if you are developing on a remote machine and make several commits, Git Relay will periodically fetch those commits into your local hub. This ensures you have a fresh, automated backup of your remote work on your local machine, without requiring you to manually initiate a pull every time you switch back to your local repository.
+
+Git Relay is designed to give you absolute control; **periodic synchronization jobs are never created automatically.** Instead, Git Relay uses an optional scanning process to simplify manual configuration.
+
+<details>
+<summary>Click to expand details about Scanning and Discovery</summary>
+
+- **Intelligent Suggestions:** By periodically scanning local and remote directories, the tool identifies repositories and hubs with shared commit lineage or matching names.
+- **Effortless Setup:** Discovered but unsynced hubs and repos are listed within the interface, allowing you to pick targets easily without having to navigate the filesystem manually.
+- **Comprehensive Logging:** Scan data is stored in `~/.cache/gitrelay/scan/`. Newly discovered or missing repos and hubs are logged in `log.jsonl`, while complete lists of known repos and hubs are kept in `local-repos.jsonl`, `local-hubs.jsonl`, and `remote-hubs.jsonl`.
 
 </details>
 
