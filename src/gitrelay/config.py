@@ -129,15 +129,23 @@ class MainConfig(BaseConfigFile):
         default_factory=lambda: [Path("~")],
         description="List of directories to scan for local repositories.",
     )
+    min_adjusted_sync_interval_secs: int = Field(
+        default=60,
+        description="Minimum synchronization interval after automatic adjustment (seconds).",
+    )
     default_local_repo_sync_interval_secs: int = Field(
         default=3600,
         description="Default synchronization interval for local repos (seconds).",
+    )
+    default_local_bare_repo_sync_interval_secs: int = Field(
+        default=3600,
+        description="Default synchronization interval for local bare repos (seconds).",
     )
     default_remote_hub_sync_interval_secs: int = Field(
         default=3600,
         description="Default synchronization interval for remote hubs in seconds.",
     )
-    default_ajust_sync_interval: bool = Field(
+    default_adjust_sync_interval: bool = Field(
         default=True,
         description="Whether to automatically adjust sync intervals based on activity.",
     )

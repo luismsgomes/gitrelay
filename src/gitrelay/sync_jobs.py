@@ -14,6 +14,7 @@ from .config import (
     LocalHubConfig,
     LocalHubsConfig,
     LocalRepoSyncConfig,
+    MainConfig,
     RemoteHubSyncConfig,
     SyncBaseConfig,
     SyncDirection,
@@ -114,13 +115,38 @@ class SyncJob(BaseJob, Generic[T]):
         hub_path = base_log_dir / self.local_hub_config.hub_name
         return hub_path / f"{self.sync_target_config.target_alias}.jsonl"
 
-    def secs_until_next_run(self) -> int:
+    def secs_until_next_run(self, main_config: MainConfig) -> int:
         """Returns the number of seconds until the next scheduled run."""
+        interval = self.sync_target_config.sync_interval_secs
+        adjust = self.sync_target_config.sync_interval_adjust
+
+        if interval is None:
+            interval = self.get_default_sync_interval_secs(main_config=main_config)
+
+        if adjust is None:
+            adjust = main_config.default_adjust_sync_interval
+
+        if adjust and interval > main_config.min_adjusted_sync_interval_secs:
+            # New interval based on recent activity:
+            # If the time since last commit is shorter than interval,
+            # set interval to the time since last commit (down to min).
+            last_commit_ts = 0.0
+            if self.last_result:
+                all_commits = self.last_result.commits_fetched + self.last_result.commits_pushed
+                if all_commits:
+                    last_commit_ts = max(c.timestamp.timestamp() for c in all_commits)
+
+            if last_commit_ts > 0:
+                now = time.time()
+                time_since_commit = int(now - last_commit_ts)
+                if time_since_commit < interval:
+                    interval = max(time_since_commit, main_config.min_adjusted_sync_interval_secs)
+
         now = time.time()
         # Use 0.0 timestamp if never run to ensure it is overdue
         last_ts = self.last_result.timestamp.timestamp() if self.last_result else 0.0
         elapsed_secs = int(now - last_ts)
-        return max(0, self.sync_target_config.sync_interval_secs - elapsed_secs)
+        return max(0, interval - elapsed_secs)
 
     def run(self) -> None:
         """Executes the synchronization logic and logs the result."""
@@ -139,6 +165,11 @@ class SyncJob(BaseJob, Generic[T]):
         """Actual synchronization implementation to be provided by subclasses."""
         pass
 
+    @abstractmethod
+    def get_default_sync_interval_secs(self, main_config: MainConfig) -> int:
+        """Actual synchronization implementation to be provided by subclasses."""
+        pass
+
 
 class LocalRepoSyncJob(SyncJob[LocalRepoSyncConfig]):
     """Synchronization job between a local hub and a local non-bare repository."""
@@ -150,6 +181,12 @@ class LocalRepoSyncJob(SyncJob[LocalRepoSyncConfig]):
             self.sync_target_config.local_repo_path,
             self.sync_target_config.target_alias,
         )
+
+    def get_default_sync_interval_secs(self, main_config: MainConfig) -> int:
+        return main_config.default_local_repo_sync_interval_secs
+
+    def get_default_sync_direction(self, main_config: MainConfig) -> SyncDirection:
+        return SyncDirection.FETCH
 
 
 class LocalBareRepoSyncJob(SyncJob[LocalBareRepoSyncConfig]):
@@ -164,6 +201,12 @@ class LocalBareRepoSyncJob(SyncJob[LocalBareRepoSyncConfig]):
             self.sync_target_config.sync_direction,
         )
 
+    def get_default_sync_interval_secs(self, main_config: MainConfig) -> int:
+        return main_config.default_local_bare_repo_sync_interval_secs
+
+    def get_default_sync_direction(self, main_config: MainConfig) -> SyncDirection:
+        return main_config.default_local_bare_repo_sync_direction
+
 
 class RemoteHubSyncJob(SyncJob[RemoteHubSyncConfig]):
     """Synchronization job between a local hub and a remote hub."""
@@ -176,6 +219,12 @@ class RemoteHubSyncJob(SyncJob[RemoteHubSyncConfig]):
             self.sync_target_config.remote_host_config.remote_host_name,
             self.sync_target_config.target_alias,
         )
+
+    def get_default_sync_interval_secs(self, main_config: MainConfig) -> int:
+        return main_config.default_remote_hub_sync_interval_secs
+
+    def get_default_sync_direction(self, main_config: MainConfig) -> SyncDirection:
+        return main_config.default_remote_hub_sync_direction
 
 
 def get_sync_jobs() -> List[SyncJob]:

@@ -4,7 +4,12 @@ from unittest.mock import MagicMock, PropertyMock, patch
 
 import pytest
 
-from gitrelay.config import LocalHubConfig, LocalHubsConfig, LocalRepoSyncConfig
+from gitrelay.config import (
+    LocalHubConfig,
+    LocalHubsConfig,
+    LocalRepoSyncConfig,
+    MainConfig,
+)
 from gitrelay.sync_jobs import (
     CommitInfo,
     LocalRepoSyncJob,
@@ -110,18 +115,59 @@ def test_sync_job_secs_until_next_run():
     target = MagicMock(spec=LocalRepoSyncConfig)
     target.target_alias = "target"
     target.sync_interval_secs = 60
+    target.sync_interval_adjust = False
 
     # Ensure no previous runs exist
     with patch("gitrelay.sync_jobs.SyncResult.load_most_recent", return_value=iter([])):
         job = LocalRepoSyncJob(local_hub_config=hub, sync_target_config=target)
-        assert job.secs_until_next_run() == 0
+        assert job.secs_until_next_run(main_config=MagicMock()) == 0
 
     last_res = SyncResult(timestamp=datetime.now() - timedelta(seconds=10))
     # Ensure one previous run exists
     with patch("gitrelay.sync_jobs.SyncResult.load_most_recent", return_value=iter([last_res])):
         job = LocalRepoSyncJob(local_hub_config=hub, sync_target_config=target)
         # 60 - 10 = 50
-        assert job.secs_until_next_run() <= 50
+        assert job.secs_until_next_run(main_config=MagicMock()) <= 50
+
+
+def test_sync_job_interval_adjustment():
+    """Verifies that the interval is adjusted based on recent commit activity."""
+    hub = MagicMock(spec=LocalHubConfig)
+    hub.hub_name = "test-hub"
+    target = MagicMock(spec=LocalRepoSyncConfig)
+    target.target_alias = "test-target"
+    target.sync_interval_secs = 3600  # 1 hour
+    target.sync_interval_adjust = True
+
+    # 1. Create a result with a very recent commit (30 seconds ago)
+    recent_commit = CommitInfo(
+        hash="xyz", timestamp=datetime.now() - timedelta(seconds=30)
+    )
+    last_res = SyncResult(
+        timestamp=datetime.now() - timedelta(seconds=3600),  # Last sync was 1 hour ago
+        commits_fetched=[recent_commit],
+    )
+
+    with patch(
+        "gitrelay.sync_jobs.SyncResult.load_most_recent", return_value=iter([last_res])
+    ):
+        job = LocalRepoSyncJob(local_hub_config=hub, sync_target_config=target)
+
+        main_config = MagicMock(spec=MainConfig)
+        main_config.min_adjusted_sync_interval_secs = 60
+
+        # Adjusted interval = 30s.
+        # Time since sync = 3600s.
+        # secs_until_next_run = max(0, 30 - 3600) = 0
+        assert job.secs_until_next_run(main_config=main_config) == 0
+
+        # Now test where it's NOT yet overdue under the new interval
+        # Last sync was 10s ago, last commit was 20s ago.
+        # Adjusted interval = 20s. (actually 60s min)
+        # secs_until_next_run = max(0, 60 - 10) = 50
+        last_res.timestamp = datetime.now() - timedelta(seconds=10)
+        recent_commit.timestamp = datetime.now() - timedelta(seconds=20)
+        assert 48 <= job.secs_until_next_run(main_config=main_config) <= 50
 
 
 def test_sync_job_run_and_record(tmp_path):

@@ -25,6 +25,9 @@ class MockSyncJob(SyncJob[SyncBaseConfig]):
     def _run(self, result) -> None:
         pass
 
+    def get_default_sync_interval_secs(self, main_config: MainConfig) -> int:
+        return 3600
+
 
 @pytest.fixture
 def mock_config():
