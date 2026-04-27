@@ -39,16 +39,19 @@ def daemon_start(dry_run: bool = False):
     try:
         try:
             config = MainConfig.load()
+            config.setup_logging()
         except FileNotFoundError:
-            logger.info(
-                "Configuration not found. Initializing defaults at %s",
-                MainConfig.get_config_path(),
-            )
             config = MainConfig()
             config.save()
+            config.setup_logging()
+            logger.warning(
+                "Configuration not found. Initialized defaults at %s",
+                MainConfig.get_config_path(),
+            )
 
         while True:
-            config.reload()
+            if config.reload():
+                config.setup_logging()
 
             jobs = []
             if config.sync_enabled:
@@ -69,7 +72,8 @@ def daemon_start(dry_run: bool = False):
                 time.sleep(secs)
 
                 # Reload config right before running each job (if changed on disk)
-                config.reload()
+                if config.reload():
+                    config.setup_logging()
 
                 if isinstance(job, SyncJob):
                     if config.sync_enabled:

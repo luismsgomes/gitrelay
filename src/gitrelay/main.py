@@ -34,15 +34,6 @@ app = typer.Typer(
 )
 
 
-def setup_logging():
-    """Configures basic logging to stderr."""
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(levelname)s: %(message)s",
-        handlers=[logging.StreamHandler(sys.stderr)],
-    )
-
-
 def get_executable_path() -> str:
     """Returns the absolute path to the current gitrelay executable."""
     executable = subprocess.run(
@@ -520,7 +511,14 @@ def show_help(ctx: typer.Context, command: Optional[str] = typer.Argument(None))
 
 
 def main():
-    setup_logging()
+    from .config import MainConfig
+
+    try:
+        config = MainConfig.load()
+    except Exception:
+        config = MainConfig()
+
+    config.setup_logging()
     app()
 
 

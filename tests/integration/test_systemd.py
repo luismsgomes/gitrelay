@@ -187,6 +187,12 @@ def test_systemd_install_and_lifecycle(cleanup_service, systemd_env):
         check=True,
     )
 
+    # Force log_level to INFO for testing so we can see the start/stop messages
+    from gitrelay.config import MainConfig
+    config = MainConfig.load()
+    config.log_level = "INFO"
+    config.save()
+
     # Status should show 'could not be found'
     res = subprocess.run(
         [exe, "daemon", "status"],

@@ -1,5 +1,7 @@
 import fcntl
 import json
+import logging
+import sys
 from enum import Enum
 from pathlib import Path
 from typing import Optional, Self, Sequence
@@ -161,6 +163,21 @@ class MainConfig(BaseConfigFile):
         default=60,
         description="Time to sleep when no jobs are active.",
     )
+    log_level: str = Field(
+        default="WARNING",
+        description="Logging level for the daemon (DEBUG, INFO, WARNING, ERROR, CRITICAL).",
+    )
+
+    def setup_logging(self):
+        """Configures or updates the global logging level based on configuration."""
+        level = getattr(logging, self.log_level.upper(), logging.INFO)
+        # We use force=True to allow re-configuration if basicConfig was already called
+        logging.basicConfig(
+            level=level,
+            format="%(levelname)s: %(message)s",
+            handlers=[logging.StreamHandler(sys.stderr)],
+            force=True,
+        )
 
     @classmethod
     def get_config_path(cls) -> Path:
