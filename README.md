@@ -70,19 +70,20 @@ Once installed and with the virtual environment still active, run these commands
 A **Hub** is a bare git repository managed exclusively by `gitrelay`. It acts as the central synchronization point for one or more **Local Repos** and potentially other **Remote Hubs** on different hosts.
 
 - **Local Hub:** A hub located on the local machine, within the configured `hub_dir` (default: `~/githubs`).
-- **Remote Hub:** A hub located on a remote host, accessed via SSH. Remote hubs are resolved by checking `~/.config/gitrelay/local.toml` on the remote host; if missing, Git Relay falls back to the `hub_dir` path configured for the local host.
+- **Remote Hub:** A hub located on a remote host, accessed via SSH. Remote hubs are resolved by retrieving the configured `hub_dir` from `~/.config/gitrelay/main.json` on the remote host; if missing, Git Relay falls back to the `hub_dir` path configured for the local host and, as a final fallback, it will try to resolve using the default `~/githubs`.
 - **Hub Name:** Hubs are identified by their relative path from the base `hub_dir`.
 - **Hub Namespaces:** Hubs can be organized into subdirectories within the `hub_dir`, up to a configurable maximum depth. Thus a Hub Name may consist of several path components, separated with `/`. The namespace of a hub is thus the path up to and excluding the last path component of a hub name.
      - *Example:* hub name=`work/foo-bar` -> hub namespace=`work`.
 - **Hub Path:** A hub's path is `hub_dir` + `Hub Name` + `.git`.
-     - *Example:* `work/foo-bar` -> `~/gitrepos/work/foo-bar.git`.
+     - *Example:* `work/foo-bar` -> `~/githubs/work/foo-bar.git`.
 
 #### Discovery and Scanning
 Git Relay is designed to give you absolute control; **synchronization jobs are never created automatically.** Instead, Git Relay uses an optional scanning process to simplify manual configuration.
 
 - **Intelligent Suggestions:** By periodically scanning local and remote directories, the tool identifies repositories and hubs with shared commit lineage or matching names.
 - **Effortless Setup:** Discovered but unsynced hubs and repos are listed within the interface, allowing you to pick targets easily without having to navigate the filesystem manually.
-- **Comprehensive Logging:** Newly discovered or missing hubs are reported in `~/.cache/scan/log.jsonl`. Current known hubs are indexed in `~/.cache/scan/hubs/`.
+- **Comprehensive Logging:** Scan data is stored in `~/.cache/gitrelay/scan/`. Newly discovered or missing repos and hubs are logged in `log.jsonl`, while
+  complete lists of known repos and hubs are kept in `local-repos.jsonl`, `local-hubs.jsonl`, and `remote-hubs.jsonl`.
 
 
 #### Hub Naming Rules
