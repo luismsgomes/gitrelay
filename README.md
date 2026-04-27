@@ -24,14 +24,38 @@ By automating periodic synchronization, Git Relay gives you peace of mind withou
 
 ## Installation
 
-```bash
-# Clone the repository
-git clone https://github.com/luismsgomes/gitrelay.git
-cd gitrelay
+The recommended way to install Git Relay is in a dedicated virtual environment to keep your system clean.
 
-# Install in editable mode
-pip install -e .
+### 1. Install the package
+```bash
+# Create and activate a virtual environment
+python3 -m venv ~/.local/share/gitrelay-venv
+source ~/.local/share/gitrelay-venv/bin/activate
+
+# Install from PyPI
+pip install gitrelay
 ```
+
+### 2. Set up the environment
+Once installed and with the virtual environment still active, run these commands to complete the setup:
+
+- **Install CLI links:** Symlinks `gitrelay` to `~/.local/bin` (ensuring it's available without activating the venv) and installs bash autocompletion.
+  ```bash
+  gitrelay cli install
+  ```
+- **Initialize configuration:** Initializes configuration with default values.
+  ```bash
+  gitrelay config init
+  ```
+- **Install the daemon:** Sets up a `systemd` user service to run the synchronization daemon automatically.
+  ```bash
+  gitrelay daemon install
+  ```
+
+> **Note:** To ensure the background daemon continues running even when you are logged out, you should enable "linger" for your user account:
+> ```bash
+> loginctl enable-linger $USER
+> ```
 
 ## Quick Start
 
@@ -71,6 +95,23 @@ A **Logical Hub Name** must:
 - Not start/end with `/` or contain `//`.
     - *Invalid:* `work//foo-bar`, `/work/foo-bar`, `work/foo-bar/`
 - Respect `max_namespace_depth` (default: 2) and `max_hub_name_length` (default: 80).
+
+</details>
+
+## Configuration
+
+The recommended way to manage your configuration is through the `gitrelay` command-line interface or the interactive shell.
+
+<details>
+<summary>Click to expand details about configuration files</summary>
+
+Git Relay stores its configuration in `~/.config/gitrelay/`. The primary files include:
+
+- `main.json`: General settings for the daemon and CLI.
+- `local-hubs.json`: Configuration for locally managed hubs.
+- `remote-hosts.json`: Definitions for remote hosts and their hub directories.
+
+*Note: Direct manual editing of these files is possible but not recommended as the CLI provides validation and safety checks.*
 
 </details>
 
