@@ -16,10 +16,11 @@
 
 import logging
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Tuple
 
 import typer
 from rich import print
@@ -40,9 +41,6 @@ def setup_logging():
         format="%(levelname)s: %(message)s",
         handlers=[logging.StreamHandler(sys.stderr)],
     )
-
-
-# --- Installation Logic ---
 
 
 def get_executable_path() -> str:
@@ -103,6 +101,43 @@ def uninstall_cli_symlink() -> bool:
         return False
 
 
+def parse_interval(interval_str: Optional[str]) -> Tuple[Optional[int], Optional[bool]]:
+    """
+    Parses a time interval string (e.g., '1h', '30m*') into seconds and auto-adjust flag.
+    """
+    if not interval_str:
+        return None, None
+
+    auto_adjust = False
+    if interval_str.endswith("*"):
+        auto_adjust = True
+        interval_str = interval_str[:-1]
+
+    pattern = r"^([0-9]+)([smhdw])$"
+    match = re.match(pattern, interval_str.lower())
+    if not match:
+        raise ValueError(
+            f"Invalid interval format: '{interval_str}'. Expected e.g. '10m', '2h*', '1d'."
+        )
+
+    value = int(match.group(1))
+    unit = match.group(2)
+
+    multipliers = {
+        "s": 1,
+        "m": 60,
+        "h": 3600,
+        "d": 86400,
+        "w": 604800,
+    }
+
+    total_secs = value * multipliers[unit]
+    if total_secs < 60:
+        raise ValueError("Minimum interval accepted is 60s.")
+
+    return total_secs, auto_adjust
+
+
 # --- CLI Group ---
 cli_app = typer.Typer(help="Manage the local CLI environment and shell integration.")
 app.add_typer(cli_app, name="cli")
@@ -147,18 +182,21 @@ def cli_uninstall():
 
 
 # --- Hub Group ---
-hub_app = typer.Typer(help="Manage local hubs (bare git repositories).")
+hub_app = typer.Typer(help="Manage local hubs.")
 app.add_typer(hub_app, name="hub")
+
+hub_sync_app = typer.Typer(help="Manage hub synchronization targets.")
+hub_app.add_typer(hub_sync_app, name="sync")
 
 
 @hub_app.command("init")
 def hub_init(
-    name: str = typer.Argument(..., help="The name of the hub to initialize."),
+    hub_name: str = typer.Argument(..., help="The name of the hub to initialize."),
 ):
-    """Initialize a new local bare git repository (hub)."""
+    """Initialize a new hub."""
     try:
-        path = hub.init_hub(name)
-        print(f"[green]Successfully initialized hub: {name}[/green]")
+        path = hub.init_hub(hub_name)
+        print(f"[green]Successfully initialized hub: {hub_name}[/green]")
         print(f"[dim]Path: {path}[/dim]")
     except FileNotFoundError:
         print("[red]Main configuration not found.[/red]")
@@ -174,26 +212,77 @@ def hub_init(
 
 @hub_app.command("delete")
 def hub_delete(
-    name: str = typer.Argument(..., help="The name of the hub to delete."),
-    yes: bool = typer.Option(
-        False, "--yes", "-y", help="Do not ask for confirmation."
-    ),
+    hub_name: str = typer.Argument(..., help="The name of the hub to delete."),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Do not ask for confirmation."),
 ):
-    """Delete a local bare git repository (hub) and its logs."""
+    """Delete a hub and its logs."""
     if not yes:
         typer.confirm(
-            f"Are you sure you want to delete hub '{name}' and all its logs?",
+            f"Are you sure you want to delete hub '{hub_name}' and all its logs?",
             abort=True,
         )
 
     try:
-        hub.delete_hub(name)
-        print(f"[green]Successfully deleted hub: {name}[/green]")
+        hub.delete_hub(hub_name)
+        print(f"[green]Successfully deleted hub: {hub_name}[/green]")
     except FileNotFoundError as e:
         print(f"[red]{e}[/red]")
         raise typer.Exit(code=1)
     except Exception as e:
         print(f"[red]Failed to delete hub: {e}[/red]")
+        raise typer.Exit(code=1)
+
+
+@hub_sync_app.command("repo")
+def hub_sync_repo(
+    hub_name: str = typer.Argument(..., help="The name of the local hub."),
+    repo_path: Path = typer.Argument(..., help="The path to the local repository."),
+    interval: Optional[str] = typer.Argument(
+        None, help="Sync interval (e.g. '1h', '10m*'). Default: global config."
+    ),
+    direction: Optional[str] = typer.Option(
+        None, "--direction", "-d", help="Sync direction: fetch, push, or both."
+    ),
+    adjust_sync_interval: bool = typer.Option(
+        False, "--adjust-sync-interval", help="Adjust interval based on activity."
+    ),
+):
+    """Setup synchronization between a local repository and a hub."""
+    from .config import SyncDirection
+
+    try:
+        interval_secs, adjust_interval = parse_interval(interval)
+    except ValueError as e:
+        print(f"[red]{e}[/red]")
+        raise typer.Exit(code=1)
+
+    if adjust_sync_interval:
+        adjust_interval = True
+
+    dir_enum = None
+    if direction:
+        try:
+            dir_enum = SyncDirection(direction.upper())
+        except ValueError:
+            print(
+                f"[red]Invalid direction: '{direction}'. Expected 'fetch', 'push', or 'both'.[/red]"
+            )
+            raise typer.Exit(code=1)
+
+    try:
+        hub.setup_sync_with_local_repo(
+            hub_name=hub_name,
+            repo_path=repo_path,
+            interval_secs=interval_secs,
+            adjust_interval=adjust_interval,
+            direction=dir_enum,
+        )
+        print(f"[green]Successfully added repo {repo_path} to hub {hub_name}.[/green]")
+    except (FileNotFoundError, ValueError) as e:
+        print(f"[red]{e}[/red]")
+        raise typer.Exit(code=1)
+    except Exception as e:
+        print(f"[red]Failed to add repo to hub: {e}[/red]")
         raise typer.Exit(code=1)
 
 
@@ -417,7 +506,9 @@ def show_help(ctx: typer.Context, command: Optional[str] = typer.Argument(None))
                             full_cmd = f"{prefix}{sub_name}"
                             s_help = sub_cmd.help or sub_cmd.short_help or ""
                             # Format line with dynamic padding
-                            cmd_str = f"  [green]gitrelay {full_cmd:<{max_width}}[/green]"
+                            cmd_str = (
+                                f"  [green]gitrelay {full_cmd:<{max_width}}[/green]"
+                            )
                             print(f"{cmd_str} [dim]{s_help}[/dim]")
 
                 print_group_commands(cmd, prefix=f"{name} ")

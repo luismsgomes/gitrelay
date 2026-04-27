@@ -132,7 +132,9 @@ class SyncJob(BaseJob, Generic[T]):
             # set interval to the time since last commit (down to min).
             last_commit_ts = 0.0
             if self.last_result:
-                all_commits = self.last_result.commits_fetched + self.last_result.commits_pushed
+                all_commits = (
+                    self.last_result.commits_fetched + self.last_result.commits_pushed
+                )
                 if all_commits:
                     last_commit_ts = max(c.timestamp.timestamp() for c in all_commits)
 
@@ -140,7 +142,9 @@ class SyncJob(BaseJob, Generic[T]):
                 now = time.time()
                 time_since_commit = int(now - last_commit_ts)
                 if time_since_commit < interval:
-                    interval = max(time_since_commit, main_config.min_adjusted_sync_interval_secs)
+                    interval = max(
+                        time_since_commit, main_config.min_adjusted_sync_interval_secs
+                    )
 
         now = time.time()
         # Use 0.0 timestamp if never run to ensure it is overdue

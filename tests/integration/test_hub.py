@@ -57,16 +57,24 @@ def test_hub_init_already_exists(mock_home):
     env = os.environ.copy()
     env["HOME"] = str(mock_home)
 
-    subprocess.run([sys.executable, "-m", "gitrelay.main", "config", "init"], check=True, env=env)
+    subprocess.run(
+        [sys.executable, "-m", "gitrelay.main", "config", "init"], check=True, env=env
+    )
 
     hub_name = "duplicate-hub"
     # 1. First init (success)
-    subprocess.run([sys.executable, "-m", "gitrelay.main", "hub", "init", hub_name], check=True, env=env)
+    subprocess.run(
+        [sys.executable, "-m", "gitrelay.main", "hub", "init", hub_name],
+        check=True,
+        env=env,
+    )
 
     # 2. Second init (fail)
     result = subprocess.run(
         [sys.executable, "-m", "gitrelay.main", "hub", "init", hub_name],
-        capture_output=True, text=True, env=env
+        capture_output=True,
+        text=True,
+        env=env,
     )
 
     assert result.returncode == 1
@@ -119,15 +127,24 @@ def test_hub_delete_with_long_yes_flag(mock_home):
     env["HOME"] = str(mock_home)
 
     # 1. Setup: Init config and a hub
-    subprocess.run([sys.executable, "-m", "gitrelay.main", "config", "init"], check=True, env=env)
+    subprocess.run(
+        [sys.executable, "-m", "gitrelay.main", "config", "init"], check=True, env=env
+    )
     hub_name = "delete-me-long"
-    subprocess.run([sys.executable, "-m", "gitrelay.main", "hub", "init", hub_name], check=True, env=env)
+    subprocess.run(
+        [sys.executable, "-m", "gitrelay.main", "hub", "init", hub_name],
+        check=True,
+        env=env,
+    )
     hub_path = mock_home / "githubs" / f"{hub_name}.git"
 
     # 2. Run delete with --yes
     result = subprocess.run(
         [sys.executable, "-m", "gitrelay.main", "hub", "delete", "--yes", hub_name],
-        capture_output=True, text=True, check=True, env=env
+        capture_output=True,
+        text=True,
+        check=True,
+        env=env,
     )
 
     assert f"Successfully deleted hub: {hub_name}" in result.stdout
@@ -139,15 +156,25 @@ def test_hub_delete_interactive_confirmed(mock_home):
     env = os.environ.copy()
     env["HOME"] = str(mock_home)
 
-    subprocess.run([sys.executable, "-m", "gitrelay.main", "config", "init"], check=True, env=env)
+    subprocess.run(
+        [sys.executable, "-m", "gitrelay.main", "config", "init"], check=True, env=env
+    )
     hub_name = "interactive-hub"
-    subprocess.run([exe := sys.executable, "-m", "gitrelay.main", "hub", "init", hub_name], check=True, env=env)
+    subprocess.run(
+        [exe := sys.executable, "-m", "gitrelay.main", "hub", "init", hub_name],
+        check=True,
+        env=env,
+    )
     hub_path = mock_home / "githubs" / f"{hub_name}.git"
 
     # Run without -y, but pipe "y" into stdin
     result = subprocess.run(
         [sys.executable, "-m", "gitrelay.main", "hub", "delete", hub_name],
-        input="y\n", capture_output=True, text=True, check=True, env=env
+        input="y\n",
+        capture_output=True,
+        text=True,
+        check=True,
+        env=env,
     )
 
     assert f"Successfully deleted hub: {hub_name}" in result.stdout
@@ -159,15 +186,24 @@ def test_hub_delete_aborted_by_enter(mock_home):
     env = os.environ.copy()
     env["HOME"] = str(mock_home)
 
-    subprocess.run([sys.executable, "-m", "gitrelay.main", "config", "init"], check=True, env=env)
+    subprocess.run(
+        [sys.executable, "-m", "gitrelay.main", "config", "init"], check=True, env=env
+    )
     hub_name = "keep-me"
-    subprocess.run([sys.executable, "-m", "gitrelay.main", "hub", "init", hub_name], check=True, env=env)
+    subprocess.run(
+        [sys.executable, "-m", "gitrelay.main", "hub", "init", hub_name],
+        check=True,
+        env=env,
+    )
     hub_path = mock_home / "githubs" / f"{hub_name}.git"
 
     # Run without -y, and pipe empty input (Enter)
     result = subprocess.run(
         [sys.executable, "-m", "gitrelay.main", "hub", "delete", hub_name],
-        input="\n", capture_output=True, text=True, env=env
+        input="\n",
+        capture_output=True,
+        text=True,
+        env=env,
     )
 
     assert result.returncode != 0
@@ -180,15 +216,24 @@ def test_hub_delete_aborted_by_no(mock_home):
     env = os.environ.copy()
     env["HOME"] = str(mock_home)
 
-    subprocess.run([sys.executable, "-m", "gitrelay.main", "config", "init"], check=True, env=env)
+    subprocess.run(
+        [sys.executable, "-m", "gitrelay.main", "config", "init"], check=True, env=env
+    )
     hub_name = "keep-me-explicit"
-    subprocess.run([sys.executable, "-m", "gitrelay.main", "hub", "init", hub_name], check=True, env=env)
+    subprocess.run(
+        [sys.executable, "-m", "gitrelay.main", "hub", "init", hub_name],
+        check=True,
+        env=env,
+    )
     hub_path = mock_home / "githubs" / f"{hub_name}.git"
 
     # Run without -y, and pipe "n"
     result = subprocess.run(
         [sys.executable, "-m", "gitrelay.main", "hub", "delete", hub_name],
-        input="n\n", capture_output=True, text=True, env=env
+        input="n\n",
+        capture_output=True,
+        text=True,
+        env=env,
     )
 
     assert result.returncode != 0
@@ -201,11 +246,15 @@ def test_hub_delete_not_found(mock_home):
     env = os.environ.copy()
     env["HOME"] = str(mock_home)
 
-    subprocess.run([sys.executable, "-m", "gitrelay.main", "config", "init"], check=True, env=env)
+    subprocess.run(
+        [sys.executable, "-m", "gitrelay.main", "config", "init"], check=True, env=env
+    )
 
     result = subprocess.run(
         [sys.executable, "-m", "gitrelay.main", "hub", "delete", "-y", "non-existent"],
-        capture_output=True, text=True, env=env
+        capture_output=True,
+        text=True,
+        env=env,
     )
 
     assert result.returncode == 1

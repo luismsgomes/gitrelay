@@ -51,9 +51,7 @@ def test_config_init_integration(mock_home):
     # 5. Verify file contents by loading them with the real classes
     # We monkeypatch the config paths to point to our mock home
     # so that the .load() method works correctly.
-    with (
-        pytest.MonkeyPatch().context() as mp,
-    ):
+    with (pytest.MonkeyPatch().context() as mp,):
         mp.setenv("HOME", str(mock_home))
 
         # Load the newly created files

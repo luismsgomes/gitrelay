@@ -52,7 +52,7 @@ def test_sync_result_append_and_load_most_recent(mock_sync_log):
     assert len(loaded[0].commits_fetched) == 1
     assert loaded[0].commits_fetched[0].hash == "abc"
     assert loaded[0].success is True
-    
+
     # Oldest should be second
     assert loaded[1].errors == ["first error"]
 
@@ -62,15 +62,14 @@ def test_sync_result_load_most_recent_ordering(mock_sync_log):
     # 1. Create and save three results
     for i in range(3):
         res = SyncResult(
-            timestamp=datetime.now() - timedelta(minutes=i),
-            errors=[f"error {i}"]
+            timestamp=datetime.now() - timedelta(minutes=i), errors=[f"error {i}"]
         )
         res.append_to_log(mock_sync_log)
 
     # 2. Load all and verify order (newest first, which is the last one appended)
     loaded = list(SyncResult.load_most_recent(mock_sync_log))
     assert len(loaded) == 3
-    
+
     assert loaded[0].errors == ["error 2"]
     assert loaded[1].errors == ["error 1"]
     assert loaded[2].errors == ["error 0"]
@@ -124,7 +123,9 @@ def test_sync_job_secs_until_next_run():
 
     last_res = SyncResult(timestamp=datetime.now() - timedelta(seconds=10))
     # Ensure one previous run exists
-    with patch("gitrelay.sync_jobs.SyncResult.load_most_recent", return_value=iter([last_res])):
+    with patch(
+        "gitrelay.sync_jobs.SyncResult.load_most_recent", return_value=iter([last_res])
+    ):
         job = LocalRepoSyncJob(local_hub_config=hub, sync_target_config=target)
         # 60 - 10 = 50
         assert job.secs_until_next_run(main_config=MagicMock()) <= 50

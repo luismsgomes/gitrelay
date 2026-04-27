@@ -3,6 +3,7 @@
 from abc import ABC, abstractmethod
 from .config import MainConfig
 
+
 class BaseJob(ABC):
     """Abstract base class for all background jobs."""
 

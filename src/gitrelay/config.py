@@ -2,7 +2,7 @@ import fcntl
 import json
 from enum import Enum
 from pathlib import Path
-from typing import Self, Sequence
+from typing import Optional, Self, Sequence
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -170,11 +170,11 @@ class MainConfig(BaseConfigFile):
 class SyncBaseConfig(BaseModel):
     """Base configuration for all synchronization targets."""
 
-    sync_interval_secs: int = Field(
-        description="Interval between synchronization runs in seconds."
+    sync_interval_secs: Optional[int] = Field(
+        default=None, description="Interval between synchronization runs in seconds."
     )
-    sync_interval_adjust: bool = Field(
-        description="Whether to adjust sync interval based on repository activity."
+    sync_interval_adjust: Optional[bool] = Field(
+        default=None, description="Whether to adjust sync interval based on repository activity."
     )
     target_alias: str = Field(
         description="A name that will be used to refer to the sync target."

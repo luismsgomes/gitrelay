@@ -31,10 +31,10 @@ def readlines_backwards(
             pointer -= step
             f.seek(pointer)
             chunk = f.read(step)
-            
+
             buffer = chunk + buffer
             lines = buffer.split(b"\n")
-            
+
             # The first element might be incomplete, keep it for next iteration
             if pointer > 0:
                 buffer = lines[0]
@@ -48,7 +48,7 @@ def readlines_backwards(
                     trailing_newline_handled = True
                     if not line:
                         continue
-                
+
                 line_str = line.decode("utf-8")
                 if strip_line_endings:
                     yield line_str.rstrip("\r\n")
