@@ -2,6 +2,9 @@
     <img src="docs/logo-no-text-300.png" alt="Git Relay Logo" width="300">
 </p>
 
+> [!CAUTION]
+> **Git Relay is currently in active early development.** Most functionality is still unreliable and may lead to data loss. **DO NOT** install or use this software for production or important repositories yet.
+
 # Git Relay
 
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
