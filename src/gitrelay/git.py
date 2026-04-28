@@ -76,7 +76,14 @@ def install_hook(
 
     hook_path = hooks_dir / hook_type.value
     args_str = " ".join(relay_args)
-    hook_content = f"#!/bin/sh\nexec gitrelay {args_str}\n"
+    hook_content = (
+        "#!/bin/sh\n"
+        'if [ "$GITRELAY_HOOK_WAIT" = "false" ]; then\n'
+        f"    gitrelay {args_str} &\n"
+        "else\n"
+        f"    exec gitrelay {args_str}\n"
+        "fi\n"
+    )
 
     with open(hook_path, "w") as f:
         f.write(hook_content)

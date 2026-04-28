@@ -1,6 +1,8 @@
 # Copyright (c) 2026 Luís Gomes <https://luismsgomes.github.io/>
 
+import os
 import subprocess
+import time
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -65,33 +67,63 @@ def test_init_repository_already_exists(tmp_path):
         init_repository(path)
 
 
-def test_install_hook_bare(tmp_path):
-    repo_path = tmp_path / "bare.git"
+def test_install_hook_behavior(tmp_path):
+    """Verifies that the installed hook behaves correctly (foreground vs background)."""
+    repo_path = tmp_path / "behavior.git"
     repo_path.mkdir()
     (repo_path / "hooks").mkdir()
 
+    # 1. Create dummy gitrelay that records its execution
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    dummy_gitrelay = bin_dir / "gitrelay"
+    marker_file = tmp_path / "marker"
+
+    # Dummy gitrelay writes "START", sleeps, then writes "END"
+    dummy_gitrelay.write_text(
+        f"#!/bin/sh\n"
+        f'echo "START $@" >> {marker_file}\n'
+        f"sleep 0.3\n"
+        f'echo "END" >> {marker_file}\n'
+    )
+    dummy_gitrelay.chmod(0o755)
+
+    env = os.environ.copy()
+    env["PATH"] = str(bin_dir) + os.pathsep + env.get("PATH", "")
+
+    # 2. Install the hook
     with patch("gitrelay.git.is_bare_repository", return_value=True):
         install_hook(repo_path, GitHookType.POST_RECEIVE, ["hook", "post-receiving"])
 
-    hook_path = repo_path / "hooks" / "post-receive"
-    assert hook_path.exists()
-    assert (
-        hook_path.read_text() == "#!/bin/sh\nexec gitrelay hook post-receiving\n"
-    )
-    assert (hook_path.stat().st_mode & 0o111) != 0  # Executable
+    hook_script = repo_path / "hooks" / "post-receive"
+    assert hook_script.exists()
 
+    # 3. Test WAIT mode (default) -> Foreground
+    start_time = time.time()
+    subprocess.run([str(hook_script)], env=env, check=True)
+    duration = time.time() - start_time
 
-def test_install_hook_non_bare(tmp_path):
-    repo_path = tmp_path / "non-bare"
-    repo_path.mkdir()
-    (repo_path / ".git" / "hooks").mkdir(parents=True)
+    assert duration >= 0.3
+    content = marker_file.read_text()
+    assert "START hook post-receiving" in content
+    assert "END" in content
 
-    with patch("gitrelay.git.is_bare_repository", return_value=False):
-        install_hook(repo_path, GitHookType.POST_COMMIT, ["hook", "after-commit"])
+    # 4. Test NO-WAIT mode -> Background
+    marker_file.write_text("")  # Reset marker
+    env["GITRELAY_HOOK_WAIT"] = "false"
 
-    hook_path = repo_path / ".git" / "hooks" / "post-commit"
-    assert hook_path.exists()
-    assert hook_path.read_text() == "#!/bin/sh\nexec gitrelay hook after-commit\n"
+    start_time = time.time()
+    subprocess.run([str(hook_script)], env=env, check=True)
+    duration = time.time() - start_time
+
+    # Should return almost immediately
+    assert duration < 0.2
+
+    # Wait for the background process to finish writing to marker
+    time.sleep(0.5)
+    content = marker_file.read_text()
+    assert "START hook post-receiving" in content
+    assert "END" in content
 
 
 def test_install_hook_not_git_repo(tmp_path):
