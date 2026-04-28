@@ -1,5 +1,3 @@
-import pytest
-from pathlib import Path
 from gitrelay.io import readlines_backwards
 
 

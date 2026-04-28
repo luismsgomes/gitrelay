@@ -503,7 +503,9 @@ def show_help(ctx: typer.Context, command: Optional[str] = typer.Argument(None))
                             full_cmd = f"{prefix}{sub_name}"
                             s_help = sub_cmd.help or sub_cmd.short_help or ""
                             # Format line with dynamic padding
-                            cmd_str = f"  [green]gitrelay {full_cmd:<{max_width}}[/green]"
+                            cmd_str = (
+                                f"  [green]gitrelay {full_cmd:<{max_width}}[/green]"
+                            )
                             print(f"{cmd_str} [dim]{s_help}[/dim]")
 
                 print_group_commands(cmd, prefix=f"{name} ")

@@ -191,7 +191,8 @@ class SyncBaseConfig(BaseModel):
         default=None, description="Interval between synchronization runs in seconds."
     )
     sync_interval_adjust: Optional[bool] = Field(
-        default=None, description="Whether to adjust sync interval based on repository activity."
+        default=None,
+        description="Whether to adjust sync interval based on repository activity.",
     )
     target_alias: str = Field(
         description="A name that will be used to refer to the sync target."

@@ -161,7 +161,7 @@ def test_hub_delete_interactive_confirmed(mock_home):
     )
     hub_name = "interactive-hub"
     subprocess.run(
-        [exe := sys.executable, "-m", "gitrelay.main", "hub", "init", hub_name],
+        [sys.executable, "-m", "gitrelay.main", "hub", "init", hub_name],
         check=True,
         env=env,
     )

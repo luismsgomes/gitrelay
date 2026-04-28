@@ -32,10 +32,10 @@ import os
 import shutil
 import subprocess
 import time
-import sys
 from datetime import datetime
-import pytest
 from pathlib import Path
+
+import pytest
 
 TEST_SERVICE_NAME = "gitrelay-test"
 
@@ -189,6 +189,7 @@ def test_systemd_install_and_lifecycle(cleanup_service, systemd_env):
 
     # Force log_level to INFO for testing so we can see the start/stop messages
     from gitrelay.config import MainConfig
+
     config = MainConfig.load()
     config.log_level = "INFO"
     config.save()

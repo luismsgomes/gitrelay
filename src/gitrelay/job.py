@@ -1,6 +1,7 @@
 # Copyright (c) 2026 Luís Gomes <https://luismsgomes.github.io/>
 
 from abc import ABC, abstractmethod
+
 from .config import MainConfig
 
 
