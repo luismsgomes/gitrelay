@@ -21,7 +21,7 @@ By automating periodic synchronization, Git Relay gives you peace of mind withou
 - **Hub-based Synchronization:** Create "Hubs" to periodically fetch commits from repos on the same machine, and optionally sync with remote hubs.
 - **Local & Remote Support:** Sync local hubs to remote hubs over SSH.
 - **Smart Scanning:** Automatically discovers repos in configured directories and facilitates creation of new hubs for them.
-- **Systemd Integration:** Runs sync daemon as systemd service.
+- **Background Daemon:** A `systemd`-integrated daemon handles periodic synchronization, repository scanning, and ensures hooks are correctly installed.
 - **Interactive Shell:** Provides a dedicated shell interface for quick management.
 - **Command Line Interface:** Gives access to all functionality enabling integration in scripts.
 
@@ -92,13 +92,35 @@ A **Logical Hub Name** must:
 
 ## The Relay Algorithm
 
-Git Relay is built around the concept of **Relay Sequences**—the automated propagation of commits across your connected repositories and hubs.
+Git Relay is built around the concept of **Relay Sequences**—the automated propagation of commits across your connected repositories and hubs. Unlike periodic synchronization, relay sequences are synchronous events triggered by user actions.
 
 ### The Push-Relay
 When you are ready to share or back up your work, you initiate a **Push-Relay** via `git relay push` (or `gitrelay push`):
 1. **Local Handoff:** Your commits are pushed from your working repository to your **Local Hub**.
-2. **Automated Forwarding:** The Git Relay daemon detects the update and "relays" the new commits to all configured **Remote Hubs**.
+2. **Immediate Propagation:** A `post-receive` hook in the Local Hub immediately "relays" the new commits to all configured **Remote Hubs**.
 3. **Synchronization:** Your work is now safely backed up and available for other machines to pull.
+
+<details>
+<summary>Click to see technical details of the Push-Relay mechanism</summary>
+
+#### Execution Modes
+The `gitrelay push` command operates in two modes, controlled by the `--wait` or `--no-wait` flags:
+- **Wait Mode (`--wait`):** The CLI waits for all remote hubs to be updated before returning.
+- **No-Wait Mode (`--no-wait`):** The CLI returns as soon as the local hub receives the commits; remote propagation happens in the background.
+
+If neither flag is provided, Git Relay follows a configuration hierarchy to determine the default behavior:
+1. **Repository Config:** `default_push_relay_wait` for the specific repository.
+2. **Hub Config:** `default_push_relay_wait` for the local hub.
+3. **Global Config:** `default_push_relay_wait` in `MainConfig` (defaults to `True`).
+
+#### Implementation
+When you execute a push, Git Relay sets the `GITRELAY_HOOK_WAIT` environment variable and executes `git push hub`. The `post-receive` hook in the Local Hub reads this variable:
+- If `true`, it runs `gitrelay hook post-receive` in the foreground.
+- If `false`, it triggers it in the background.
+
+The `hook post-receive` command loads the hub configuration and pushes the new commits to each configured remote hub. This propagation is performed in parallel or sequentially based on the `parallel_push` setting (configured at the Hub or Global level, defaulting to `True`).
+
+</details>
 
 ### The Pull-Relay
 To ensure you are working with the most recent state, you initiate a **Pull-Relay** via `git relay pull` (or `gitrelay pull`):
@@ -110,7 +132,7 @@ To ensure you are working with the most recent state, you initiate a **Pull-Rela
 
 ## Periodic Synchronization
 
-In addition to the explicit Relay Sequences, Git Relay provides background periodic synchronization. This is essential for machines behind NAT that cannot receive incoming Push-Relays, and as an automated safety net to keep your local environment up-to-date.
+In addition to the explicit Relay Sequences, Git Relay provides background periodic synchronization managed by the `gitrelay daemon`. This is essential for machines behind NAT that cannot receive incoming Push-Relays, and as an automated safety net to keep your local environment up-to-date.
 
 Periodic synchronization is particularly useful when working on remote servers. For example, if you are developing on a remote machine and make several commits, Git Relay will periodically fetch those commits into your local hub. This ensures you have a fresh, automated backup of your remote work on your local machine, without requiring you to manually initiate a pull every time you switch back to your local repository.
 
