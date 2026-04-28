@@ -10,13 +10,11 @@ from typing import Generator, Generic, List, Optional, Self, TypeVar
 from pydantic import BaseModel, Field
 
 from .config import (
-    LocalBareRepoSyncConfig,
     LocalHubConfig,
     LocalHubsConfig,
-    LocalRepoSyncConfig,
     MainConfig,
     RemoteHubSyncConfig,
-    SyncBaseConfig,
+    RepositoryConfig,
     SyncDirection,
 )
 from .io import readlines_backwards
@@ -81,8 +79,8 @@ class SyncResult(BaseModel):
             logger.error("Failed to record sync result to %s: %s", path, e)
 
 
-# Define a TypeVar that is bound to SyncBaseConfig
-T = TypeVar("T", bound=SyncBaseConfig)
+# Define a TypeVar that is bound to SyncBaseConfig or RepositoryConfig
+T = TypeVar("T", bound=BaseModel)
 
 
 class SyncJob(BaseJob, Generic[T]):
@@ -100,12 +98,24 @@ class SyncJob(BaseJob, Generic[T]):
             SyncResult.load_most_recent(self.log_path), None
         )
 
+    @property
+    @abstractmethod
+    def target_alias(self) -> str:
+        """Returns the alias or ID of the synchronization target."""
+        pass
+
+    @property
+    @abstractmethod
+    def sync_direction(self) -> SyncDirection:
+        """Returns the synchronization direction for this target."""
+        pass
+
     def __str__(self) -> str:
         """Returns a string representation of the sync job."""
-        direction = self.sync_target_config.get_sync_direction()
+        direction = self.sync_direction
         arrow = "<--" if direction == SyncDirection.FETCH else "<->"
         hub = self.local_hub_config.hub_name
-        target = self.sync_target_config.target_alias
+        target = self.target_alias
         return f"sync {hub}{arrow}{target}"
 
     @property
@@ -113,7 +123,7 @@ class SyncJob(BaseJob, Generic[T]):
         """Returns the path to the JSONL log file for this specific sync job."""
         base_log_dir = Path("~/.cache/gitrelay/logs/sync").expanduser()
         hub_path = base_log_dir / self.local_hub_config.hub_name
-        return hub_path / f"{self.sync_target_config.target_alias}.jsonl"
+        return hub_path / f"{self.target_alias}.jsonl"
 
     def secs_until_next_run(self, main_config: MainConfig) -> int:
         """Returns the number of seconds until the next scheduled run."""
@@ -175,45 +185,43 @@ class SyncJob(BaseJob, Generic[T]):
         pass
 
 
-class LocalRepoSyncJob(SyncJob[LocalRepoSyncConfig]):
-    """Synchronization job between a local hub and a local non-bare repository."""
+class RepositorySyncJob(SyncJob[RepositoryConfig]):
+    """Synchronization job for a local repository."""
+
+    @property
+    def target_alias(self) -> str:
+        return self.sync_target_config.repo_id
+
+    @property
+    def sync_direction(self) -> SyncDirection:
+        return self.sync_target_config.sync_direction
 
     def _run(self, result: SyncResult) -> None:
         logger.info(
-            "Syncing local hub %s with local repo %s (alias: %s)",
+            "Syncing local hub %s with local repo %s (ID: %s, bare: %s, direction: %s)",
             self.local_hub_config.hub_name,
             self.sync_target_config.local_repo_path,
-            self.sync_target_config.target_alias,
-        )
-
-    def get_default_sync_interval_secs(self, main_config: MainConfig) -> int:
-        return main_config.default_local_repo_sync_interval_secs
-
-    def get_default_sync_direction(self, main_config: MainConfig) -> SyncDirection:
-        return SyncDirection.FETCH
-
-
-class LocalBareRepoSyncJob(SyncJob[LocalBareRepoSyncConfig]):
-    """Synchronization job between a local hub and a local bare repository."""
-
-    def _run(self, result: SyncResult) -> None:
-        logger.info(
-            "Syncing local hub %s with local bare repo %s (alias: %s, direction: %s)",
-            self.local_hub_config.hub_name,
-            self.sync_target_config.local_repo_path,
-            self.sync_target_config.target_alias,
+            self.sync_target_config.repo_id,
+            self.sync_target_config.is_bare,
             self.sync_target_config.sync_direction,
         )
 
     def get_default_sync_interval_secs(self, main_config: MainConfig) -> int:
-        return main_config.default_local_bare_repo_sync_interval_secs
-
-    def get_default_sync_direction(self, main_config: MainConfig) -> SyncDirection:
-        return main_config.default_local_bare_repo_sync_direction
+        if self.sync_target_config.is_bare:
+            return main_config.default_local_bare_repo_sync_interval_secs
+        return main_config.default_local_repo_sync_interval_secs
 
 
 class RemoteHubSyncJob(SyncJob[RemoteHubSyncConfig]):
     """Synchronization job between a local hub and a remote hub."""
+
+    @property
+    def target_alias(self) -> str:
+        return self.sync_target_config.target_alias
+
+    @property
+    def sync_direction(self) -> SyncDirection:
+        return self.sync_target_config.sync_direction
 
     def _run(self, result: SyncResult) -> None:
         logger.info(
@@ -227,9 +235,6 @@ class RemoteHubSyncJob(SyncJob[RemoteHubSyncConfig]):
     def get_default_sync_interval_secs(self, main_config: MainConfig) -> int:
         return main_config.default_remote_hub_sync_interval_secs
 
-    def get_default_sync_direction(self, main_config: MainConfig) -> SyncDirection:
-        return main_config.default_remote_hub_sync_direction
-
 
 def get_sync_jobs() -> List[SyncJob]:
     """Returns a list of all active synchronization jobs from configuration."""
@@ -240,17 +245,16 @@ def get_sync_jobs() -> List[SyncJob]:
 
     jobs: List[SyncJob] = []
     for hub in hubs_config.local_hubs:
-        for repo_config in hub.synced_local_repos:
-            jobs.append(
-                LocalRepoSyncJob(local_hub_config=hub, sync_target_config=repo_config)
-            )
-
-        for bare_repo_config in hub.synced_local_bare_repos:
-            jobs.append(
-                LocalBareRepoSyncJob(
-                    local_hub_config=hub, sync_target_config=bare_repo_config
+        for repo_id in hub.synced_local_repo_ids:
+            try:
+                repo_config = RepositoryConfig.load(repo_id)
+                jobs.append(
+                    RepositorySyncJob(
+                        local_hub_config=hub, sync_target_config=repo_config
+                    )
                 )
-            )
+            except Exception as e:
+                logger.error("Failed to load RepositoryConfig for %s: %s", repo_id, e)
 
         for remote_hub_config in hub.synced_remote_hubs:
             jobs.append(

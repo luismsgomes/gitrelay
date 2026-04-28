@@ -6,11 +6,10 @@ import pytest
 from pydantic import ValidationError
 
 from gitrelay.config import (
-    LocalBareRepoSyncConfig,
     LocalHubConfig,
     LocalHubsConfig,
-    LocalRepoSyncConfig,
     MainConfig,
+    RepositoryConfig,
     SyncDirection,
 )
 
@@ -102,13 +101,12 @@ def test_main_config_save_load(test_main_config_path):
 
 
 def test_complex_config_roundtrip(test_hubs_path):
-    """Verifies round-trip of a complex configuration with nested lists."""
+    """Verifies round-trip of a complex configuration with synced IDs."""
     hubs_config = LocalHubsConfig(
         local_hubs=[
             LocalHubConfig(
                 hub_name="work/api",
-                synced_local_repos=[],
-                synced_local_bare_repos=[],
+                synced_local_repo_ids=["uuid-1", "uuid-2"],
                 synced_remote_hubs=[],
             )
         ]
@@ -118,73 +116,88 @@ def test_complex_config_roundtrip(test_hubs_path):
     loaded = LocalHubsConfig.load()
     assert len(loaded.local_hubs) == 1
     assert loaded.local_hubs[0].hub_name == "work/api"
+    assert loaded.local_hubs[0].synced_local_repo_ids == ["uuid-1", "uuid-2"]
 
 
-def test_hub_alias_uniqueness_validation():
-    """Verifies that duplicate aliases are caught by the model validator."""
-    # Create two configs with same alias
-    repo1 = LocalRepoSyncConfig(
+def test_repository_config_save_load(tmp_path):
+    """Verifies round-trip of individual RepositoryConfig files."""
+    # Mock repos dir
+    repos_dir = tmp_path / "repos"
+    original_method = RepositoryConfig.get_repos_dir
+    RepositoryConfig.get_repos_dir = classmethod(lambda cls: repos_dir)
+
+    try:
+        repo_id = "test-uuid"
+        config = RepositoryConfig(
+            repo_id=repo_id,
+            hub_name="my-hub",
+            local_repo_path=Path("/home/user/repo"),
+            is_bare=False,
+            sync_direction=SyncDirection.FETCH,
+        )
+        config.save()
+
+        assert (repos_dir / f"{repo_id}.json").exists()
+
+        loaded = RepositoryConfig.load(repo_id)
+        assert loaded.repo_id == repo_id
+        assert loaded.hub_name == "my-hub"
+        assert loaded.local_repo_path == Path("/home/user/repo")
+        assert loaded.is_bare is False
+    finally:
+        RepositoryConfig.get_repos_dir = original_method
+
+
+def test_remote_alias_uniqueness_validation():
+    """Verifies that duplicate remote aliases are caught by the model validator."""
+    from gitrelay.config import RemoteHostConfig, RemoteHubSyncConfig
+
+    host = RemoteHostConfig(
+        remote_host_name="host1",
+        remote_hubs_dir=Path("/hubs"),
+        remote_hub_scan_interval_secs=3600,
+        remote_hub_scan_enabled=True,
+    )
+
+    remote1 = RemoteHubSyncConfig(
         target_alias="origin",
-        sync_interval_secs=3600,
-        sync_interval_adjust=True,
-        local_repo_path=Path("/tmp/repo1"),
+        remote_hub_name=Path("repo.git"),
+        remote_host_config=host,
     )
-    repo2 = LocalRepoSyncConfig(
+    remote2 = RemoteHubSyncConfig(
         target_alias="origin",  # CLASH
-        sync_interval_secs=3600,
-        sync_interval_adjust=True,
-        local_repo_path=Path("/tmp/repo2"),
+        remote_hub_name=Path("other.git"),
+        remote_host_config=host,
     )
 
-    with pytest.raises(ValueError, match="Duplicate target aliases found"):
-        LocalHubConfig(hub_name="my-hub", synced_local_repos=[repo1, repo2])
-
-
-def test_add_synced_methods_enforce_uniqueness():
-    """Verifies that add_synced_* methods check uniqueness immediately."""
-    hub = LocalHubConfig(hub_name="my-hub")
-
-    repo1 = LocalRepoSyncConfig(
-        target_alias="origin",
-        sync_interval_secs=3600,
-        sync_interval_adjust=True,
-        local_repo_path=Path("/tmp/repo1"),
-    )
-
-    hub.add_synced_local_repo(repo1)
-
-    # Try to add a bare repo with same alias
-    bare_repo = LocalBareRepoSyncConfig(
-        target_alias="origin",  # CLASH
-        sync_interval_secs=3600,
-        sync_interval_adjust=True,
-        local_repo_path=Path("/tmp/bare"),
-        sync_direction=SyncDirection.BOTH,
-    )
-
-    with pytest.raises(ValueError, match="already in use"):
-        hub.add_synced_local_bare_repo(bare_repo)
+    with pytest.raises(ValueError, match="Duplicate remote target aliases found"):
+        LocalHubConfig(hub_name="my-hub", synced_remote_hubs=[remote1, remote2])
 
 
 def test_save_triggers_validation():
     """Verifies that save() fails if the model state is somehow corrupted."""
-    # This shouldn't happen if using add_ methods, but let's test the 'safety net'
-    repo = LocalRepoSyncConfig(
-        target_alias="origin",
-        sync_interval_secs=3600,
-        sync_interval_adjust=True,
-        local_repo_path=Path("/tmp/repo1"),
+    from gitrelay.config import RemoteHostConfig, RemoteHubSyncConfig
+
+    host = RemoteHostConfig(
+        remote_host_name="host1",
+        remote_hubs_dir=Path("/hubs"),
+        remote_hub_scan_interval_secs=3600,
+        remote_hub_scan_enabled=True,
     )
-    hub = LocalHubConfig(hub_name="my-hub", synced_local_repos=[repo])
+
+    remote = RemoteHubSyncConfig(
+        target_alias="origin",
+        remote_hub_name=Path("repo.git"),
+        remote_host_config=host,
+    )
+    hub = LocalHubConfig(hub_name="my-hub", synced_remote_hubs=[remote])
 
     # Manually bypass the method to create a clash
-    hub.synced_local_bare_repos.append(
-        LocalBareRepoSyncConfig(
+    hub.synced_remote_hubs.append(
+        RemoteHubSyncConfig(
             target_alias="origin",
-            sync_interval_secs=3600,
-            sync_interval_adjust=True,
-            local_repo_path=Path("/tmp/bare"),
-            sync_direction=SyncDirection.BOTH,
+            remote_hub_name=Path("other.git"),
+            remote_host_config=host,
         )
     )
 

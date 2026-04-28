@@ -7,12 +7,12 @@ import pytest
 from gitrelay.config import (
     LocalHubConfig,
     LocalHubsConfig,
-    LocalRepoSyncConfig,
     MainConfig,
+    RepositoryConfig,
 )
 from gitrelay.sync_jobs import (
     CommitInfo,
-    LocalRepoSyncJob,
+    RepositorySyncJob,
     SyncJob,
     SyncResult,
     get_sync_jobs,
@@ -89,11 +89,11 @@ def test_sync_result_load_from_empty_file(mock_sync_log):
 def test_sync_job_log_path(tmp_path):
     """Verifies that SyncJob calculates the correct log path."""
     hub = LocalHubConfig(hub_name="work/api")
-    target = LocalRepoSyncConfig(
-        target_alias="backup",
-        sync_interval_secs=3600,
-        sync_interval_adjust=False,
+    target = RepositoryConfig(
+        repo_id="uuid-abc",
+        hub_name="work/api",
         local_repo_path=Path("/tmp/repo"),
+        is_bare=False,
     )
 
     # Correctly mock Path in the target module
@@ -101,9 +101,9 @@ def test_sync_job_log_path(tmp_path):
         # Mock Path("~/.cache/gitrelay/logs/sync").expanduser() to return tmp_path
         mock_path.return_value.expanduser.return_value = tmp_path
 
-        job = LocalRepoSyncJob(local_hub_config=hub, sync_target_config=target)
+        job = RepositorySyncJob(local_hub_config=hub, sync_target_config=target)
 
-        expected_path = tmp_path / "work/api" / "backup.jsonl"
+        expected_path = tmp_path / "work/api" / "uuid-abc.jsonl"
         assert job.log_path == expected_path
 
 
@@ -111,14 +111,14 @@ def test_sync_job_secs_until_next_run():
     """Verifies the scheduling logic in SyncJob."""
     hub = MagicMock(spec=LocalHubConfig)
     hub.hub_name = "test"
-    target = MagicMock(spec=LocalRepoSyncConfig)
-    target.target_alias = "target"
+    target = MagicMock(spec=RepositoryConfig)
+    target.repo_id = "uuid-1"
     target.sync_interval_secs = 60
     target.sync_interval_adjust = False
 
     # Ensure no previous runs exist
     with patch("gitrelay.sync_jobs.SyncResult.load_most_recent", return_value=iter([])):
-        job = LocalRepoSyncJob(local_hub_config=hub, sync_target_config=target)
+        job = RepositorySyncJob(local_hub_config=hub, sync_target_config=target)
         assert job.secs_until_next_run(main_config=MagicMock()) == 0
 
     last_res = SyncResult(timestamp=datetime.now() - timedelta(seconds=10))
@@ -126,7 +126,7 @@ def test_sync_job_secs_until_next_run():
     with patch(
         "gitrelay.sync_jobs.SyncResult.load_most_recent", return_value=iter([last_res])
     ):
-        job = LocalRepoSyncJob(local_hub_config=hub, sync_target_config=target)
+        job = RepositorySyncJob(local_hub_config=hub, sync_target_config=target)
         # 60 - 10 = 50
         assert job.secs_until_next_run(main_config=MagicMock()) <= 50
 
@@ -135,8 +135,8 @@ def test_sync_job_interval_adjustment():
     """Verifies that the interval is adjusted based on recent commit activity."""
     hub = MagicMock(spec=LocalHubConfig)
     hub.hub_name = "test-hub"
-    target = MagicMock(spec=LocalRepoSyncConfig)
-    target.target_alias = "test-target"
+    target = MagicMock(spec=RepositoryConfig)
+    target.repo_id = "uuid-2"
     target.sync_interval_secs = 3600  # 1 hour
     target.sync_interval_adjust = True
 
@@ -152,7 +152,7 @@ def test_sync_job_interval_adjustment():
     with patch(
         "gitrelay.sync_jobs.SyncResult.load_most_recent", return_value=iter([last_res])
     ):
-        job = LocalRepoSyncJob(local_hub_config=hub, sync_target_config=target)
+        job = RepositorySyncJob(local_hub_config=hub, sync_target_config=target)
 
         main_config = MagicMock(spec=MainConfig)
         main_config.min_adjusted_sync_interval_secs = 60
@@ -174,18 +174,20 @@ def test_sync_job_interval_adjustment():
 def test_sync_job_run_and_record(tmp_path):
     """Verifies that run() updates last_result and writes to log."""
     hub = LocalHubConfig(hub_name="test-hub")
-    target = LocalRepoSyncConfig(
-        target_alias="test-target",
+    target = RepositoryConfig(
+        repo_id="uuid-run",
+        hub_name="test-hub",
+        local_repo_path=Path("/tmp/repo"),
+        is_bare=False,
         sync_interval_secs=3600,
         sync_interval_adjust=False,
-        local_repo_path=Path("/tmp/repo"),
     )
 
     with patch.object(SyncJob, "log_path", new_callable=PropertyMock) as mock_log_path:
         log_file = tmp_path / "test.jsonl"
         mock_log_path.return_value = log_file
 
-        job = LocalRepoSyncJob(local_hub_config=hub, sync_target_config=target)
+        job = RepositorySyncJob(local_hub_config=hub, sync_target_config=target)
         assert job.last_result is None
 
         job.run()
@@ -198,26 +200,33 @@ def test_sync_job_run_and_record(tmp_path):
 
 
 def test_get_sync_jobs_complex_config(tmp_path):
-    """Verifies that get_sync_jobs correctly parses LocalHubsConfig."""
+    """Verifies that get_sync_jobs correctly parses LocalHubsConfig and loads RepositoryConfigs."""
     hubs_path = tmp_path / "hubs.json"
+    repos_dir = tmp_path / "repos"
+    repos_dir.mkdir()
 
-    with patch(
-        "gitrelay.config.LocalHubsConfig.get_config_path", return_value=hubs_path
+    with (
+        patch(
+            "gitrelay.config.LocalHubsConfig.get_config_path", return_value=hubs_path
+        ),
+        patch("gitrelay.config.RepositoryConfig.get_repos_dir", return_value=repos_dir),
     ):
-        hub = LocalHubConfig(hub_name="my-hub")
-        hub.add_synced_local_repo(
-            LocalRepoSyncConfig(
-                target_alias="repo1",
-                sync_interval_secs=3600,
-                sync_interval_adjust=False,
-                local_repo_path=Path("/tmp/r1"),
-            )
+        repo_id = "uuid-get-jobs"
+        repo_cfg = RepositoryConfig(
+            repo_id=repo_id,
+            hub_name="my-hub",
+            local_repo_path=Path("/tmp/r1"),
+            is_bare=False,
         )
+        repo_cfg.save()
+
+        hub = LocalHubConfig(hub_name="my-hub")
+        hub.add_synced_local_repo_id(repo_id)
 
         hubs_config = LocalHubsConfig(local_hubs=[hub])
         hubs_config.save()
 
         jobs = get_sync_jobs()
         assert len(jobs) == 1
-        assert isinstance(jobs[0], LocalRepoSyncJob)
-        assert jobs[0].sync_target_config.target_alias == "repo1"
+        assert isinstance(jobs[0], RepositorySyncJob)
+        assert jobs[0].sync_target_config.repo_id == repo_id

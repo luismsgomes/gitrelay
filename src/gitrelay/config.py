@@ -167,6 +167,10 @@ class MainConfig(BaseConfigFile):
         default="WARNING",
         description="Logging level for the daemon (DEBUG, INFO, WARNING, ERROR, CRITICAL).",
     )
+    default_push_relay_wait: bool = Field(
+        default=True,
+        description="Whether to wait for the push relay to complete by default.",
+    )
 
     def setup_logging(self):
         """Configures or updates the global logging level based on configuration."""
@@ -197,36 +201,71 @@ class SyncBaseConfig(BaseModel):
     target_alias: str = Field(
         description="A name that will be used to refer to the sync target."
     )
-
-    def get_sync_direction(self) -> SyncDirection:
-        """Returns the synchronization direction for this target."""
-        raise NotImplementedError("Subclasses must implement get_sync_direction")
-
-
-class LocalRepoSyncBaseConfig(SyncBaseConfig):
-    """Common configuration for all local synchronization targets."""
-
-    local_repo_path: Path = Field(description="Path to the local repository.")
-
-
-class LocalRepoSyncConfig(LocalRepoSyncBaseConfig):
-    """Configuration for a local non-bare repository synchronization target."""
-
-    def get_sync_direction(self) -> SyncDirection:
-        "Synchronization direction for local repositories (always FETCH)."
-        # cannot push to normal (non-bare) repos
-        return SyncDirection.FETCH
-
-
-class LocalBareRepoSyncConfig(LocalRepoSyncBaseConfig):
-    """Configuration for a local bare repository synchronization target."""
-
-    sync_direction: SyncDirection = Field(
-        description="Synchronization direction for local bare repositories."
+    default_push_relay_wait: Optional[bool] = Field(
+        default=None,
+        description="Whether to wait for the push relay to complete for this target.",
     )
 
-    def get_sync_direction(self) -> SyncDirection:
-        return self.sync_direction
+
+class RepositoryConfig(BaseModel):
+    """
+    Configuration for a single local repository synchronization target.
+    Stored in ~/.config/gitrelay/repos/<repo_id>.json.
+    """
+
+    repo_id: str = Field(description="Unique identifier for the repository.")
+    hub_name: str = Field(description="Name of the hub this repository connects to.")
+    local_repo_path: Path = Field(description="Path to the local repository.")
+    is_bare: bool = Field(description="Whether the repository is bare.")
+    sync_interval_secs: Optional[int] = Field(
+        default=None, description="Interval between synchronization runs in seconds."
+    )
+    sync_interval_adjust: Optional[bool] = Field(
+        default=None,
+        description="Whether to adjust sync interval based on repository activity.",
+    )
+    sync_direction: SyncDirection = Field(
+        default=SyncDirection.FETCH,
+        description="Synchronization direction for the repository.",
+    )
+    default_push_relay_wait: Optional[bool] = Field(
+        default=None,
+        description="Whether to wait for the push relay to complete for this target.",
+    )
+
+    @classmethod
+    def get_repos_dir(cls) -> Path:
+        """Returns the directory where repository configurations are stored."""
+        return Path("~/.config/gitrelay/repos").expanduser()
+
+    @classmethod
+    def get_config_path(cls, repo_id: str) -> Path:
+        """Returns the path for a specific repository configuration."""
+        return cls.get_repos_dir() / f"{repo_id}.json"
+
+    @classmethod
+    def load(cls, repo_id: str) -> Self:
+        """Load the repository configuration from disk."""
+        path = cls.get_config_path(repo_id)
+        with open(path, "r") as f:
+            fcntl.flock(f, fcntl.LOCK_SH)
+            try:
+                data = json.load(f)
+                return cls.model_validate(data)
+            finally:
+                fcntl.flock(f, fcntl.LOCK_UN)
+
+    def save(self) -> None:
+        """Save the repository configuration to disk."""
+        path = self.get_config_path(self.repo_id)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with open(path, "w") as f:
+            fcntl.flock(f, fcntl.LOCK_EX)
+            try:
+                data = self.model_dump(mode="json")
+                json.dump(data, f, indent=4)
+            finally:
+                fcntl.flock(f, fcntl.LOCK_UN)
 
 
 class RemoteHostConfig(BaseModel):
@@ -268,56 +307,49 @@ class LocalHubConfig(BaseModel):
     model_config = ConfigDict(validate_assignment=True)
 
     hub_name: str = Field(description="Name of the local hub.")
-    synced_local_repos: list[LocalRepoSyncConfig] = Field(
+    synced_local_repo_ids: list[str] = Field(
         default_factory=list,
-        description="List of local non-bare repositories synchronized with this hub.",
-    )
-    synced_local_bare_repos: list[LocalBareRepoSyncConfig] = Field(
-        default_factory=list,
-        description="List of local bare repositories synchronized with this hub.",
+        description="List of IDs of local repositories synchronized with this hub.",
     )
     synced_remote_hubs: list[RemoteHubSyncConfig] = Field(
         default_factory=list,
         description="List of remote hubs synchronized with this hub.",
     )
+    default_push_relay_wait: Optional[bool] = Field(
+        default=None,
+        description="Whether to wait for the push relay to complete for this hub.",
+    )
 
     @property
-    def all_sync_targets(self) -> Sequence[SyncBaseConfig]:
-        """Returns a combined sequence of all synchronization targets."""
-        return (
-            list(self.synced_local_repos)
-            + list(self.synced_local_bare_repos)
-            + list(self.synced_remote_hubs)
-        )
+    def all_remote_sync_targets(self) -> Sequence[RemoteHubSyncConfig]:
+        """Returns a combined sequence of all remote synchronization targets."""
+        return list(self.synced_remote_hubs)
 
     @model_validator(mode="after")
-    def validate_unique_aliases(self) -> Self:
-        """Ensures that all target aliases within the hub are unique."""
-        aliases = [t.target_alias for t in self.all_sync_targets]
+    def validate_unique_remote_aliases(self) -> Self:
+        """Ensures that all remote target aliases within the hub are unique."""
+        aliases = [t.target_alias for t in self.all_remote_sync_targets]
         if len(aliases) != len(set(aliases)):
             duplicates = [a for a in set(aliases) if aliases.count(a) > 1]
-            raise ValueError(f"Duplicate target aliases found: {', '.join(duplicates)}")
+            raise ValueError(
+                f"Duplicate remote target aliases found: {', '.join(duplicates)}"
+            )
         return self
 
-    def _check_alias_uniqueness(self, alias: str):
-        if any(t.target_alias == alias for t in self.all_sync_targets):
+    def _check_remote_alias_uniqueness(self, alias: str):
+        if any(t.target_alias == alias for t in self.all_remote_sync_targets):
             raise ValueError(
-                f"Alias '{alias}' is already in use in hub '{self.hub_name}'"
+                f"Remote alias '{alias}' is already in use in hub '{self.hub_name}'"
             )
 
-    def add_synced_local_repo(self, config: LocalRepoSyncConfig):
-        """Adds a local repository to the hub with an immediate uniqueness check."""
-        self._check_alias_uniqueness(config.target_alias)
-        self.synced_local_repos.append(config)
-
-    def add_synced_local_bare_repo(self, config: LocalBareRepoSyncConfig):
-        """Adds a local bare repository with an immediate uniqueness check."""
-        self._check_alias_uniqueness(config.target_alias)
-        self.synced_local_bare_repos.append(config)
+    def add_synced_local_repo_id(self, repo_id: str):
+        """Adds a local repository ID to the hub."""
+        if repo_id not in self.synced_local_repo_ids:
+            self.synced_local_repo_ids.append(repo_id)
 
     def add_synced_remote_hub(self, config: RemoteHubSyncConfig):
         """Adds a remote hub to the hub with an immediate uniqueness check."""
-        self._check_alias_uniqueness(config.target_alias)
+        self._check_remote_alias_uniqueness(config.target_alias)
         self.synced_remote_hubs.append(config)
 
 

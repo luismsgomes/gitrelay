@@ -1,9 +1,11 @@
 # Copyright (c) 2026 Luís Gomes <https://luismsgomes.github.io/>
 
+import os
 import subprocess
+import uuid
 from enum import Enum
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 
 
 class GitHookType(str, Enum):
@@ -89,3 +91,60 @@ def install_hook(
         f.write(hook_content)
 
     hook_path.chmod(0o755)
+
+
+def git_get_toplevel() -> Path:
+    """Returns the absolute path to the root of the current working tree."""
+    res = subprocess.run(
+        ["git", "rev-parse", "--show-toplevel"],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    return Path(res.stdout.strip())
+
+
+def git_push(remote: str, wait: bool) -> None:
+    """
+    Executes 'git push <remote>' while setting GITRELAY_HOOK_WAIT.
+    """
+    env = os.environ.copy()
+    env["GITRELAY_HOOK_WAIT"] = "true" if wait else "false"
+    subprocess.run(["git", "push", remote], env=env, check=True)
+
+
+def git_set_config(repo_path: Path, key: str, value: str) -> None:
+    """Sets a git configuration value for a specific repository."""
+    subprocess.run(
+        ["git", "-C", str(repo_path), "config", key, value],
+        check=True,
+    )
+
+
+def git_get_config(repo_path: Path, key: str) -> Optional[str]:
+    """Gets a git configuration value for a specific repository."""
+    try:
+        res = subprocess.run(
+            ["git", "-C", str(repo_path), "config", "--get", key],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        return res.stdout.strip()
+    except subprocess.CalledProcessError:
+        return None
+
+
+def git_get_repo_id(repo_path: Path) -> Optional[str]:
+    """Retrieves the gitrelay repo ID from git config."""
+    return git_get_config(repo_path, "gitrelay.repoId")
+
+
+def git_set_repo_id(repo_path: Path, repo_id: str) -> None:
+    """Stores the gitrelay repo ID in git config."""
+    git_set_config(repo_path, "gitrelay.repoId", repo_id)
+
+
+def generate_repo_id() -> str:
+    """Generates a new unique repository ID."""
+    return str(uuid.uuid4())

@@ -25,7 +25,8 @@ from typing import Optional, Tuple
 import typer
 from rich import print
 
-from . import daemon, hub, systemd
+from . import daemon, git, hub, systemd
+from .config import LocalHubsConfig, MainConfig, RepositoryConfig
 
 logger = logging.getLogger(__name__)
 
@@ -281,6 +282,101 @@ def hub_sync_repo(
     except Exception as e:
         print(f"[red]Failed to add repo to hub: {e}[/red]")
         raise typer.Exit(code=1)
+
+
+@app.command("push")
+def push(
+    wait: Optional[bool] = typer.Option(
+        None, "--wait/--no-wait", help="Wait for the relay to complete."
+    ),
+    remote: str = typer.Argument("hub", help="The remote to push to."),
+):
+    """
+    Push to a hub and trigger propagation to remote hubs.
+    """
+    if wait is None:
+        wait = resolve_push_wait()
+
+    try:
+        git.git_push(remote, wait)
+        print(f"[green]Successfully pushed to {remote}.[/green]")
+    except subprocess.CalledProcessError as e:
+        # print(f"[red]Error pushing to {remote}: {e}[/red]") # redundant as git push already prints
+        raise typer.Exit(code=e.returncode)
+
+
+def resolve_push_wait() -> bool:
+    """
+    Resolves the 'wait' setting for the current repository.
+    Includes self-healing for moved/renamed repositories.
+    """
+    try:
+        current_repo_path = git.git_get_toplevel().absolute()
+    except subprocess.CalledProcessError:
+        # Not in a git repo?
+        return MainConfig.load().default_push_relay_wait
+
+    repo_id = git.git_get_repo_id(current_repo_path)
+    main_config = MainConfig.load()
+
+    repo_config: Optional[RepositoryConfig] = None
+
+    if repo_id:
+        try:
+            repo_config = RepositoryConfig.load(repo_id)
+            # Self-healing: path update
+            if repo_config.local_repo_path.absolute() != current_repo_path:
+                logger.info(
+                    "Self-healing: updating path for repo %s to %s",
+                    repo_id,
+                    current_repo_path,
+                )
+                repo_config.local_repo_path = current_repo_path
+                repo_config.save()
+        except FileNotFoundError:
+            # ID exists in git config but no JSON file found?
+            # We will fall back to path-based search
+            pass
+
+    if not repo_config:
+        # Fallback: search all JSON files in repos/ directory by path
+        repos_dir = RepositoryConfig.get_repos_dir()
+        if repos_dir.exists():
+            for config_file in repos_dir.glob("*.json"):
+                try:
+                    cfg = RepositoryConfig.model_validate_json(config_file.read_text())
+                    if cfg.local_repo_path.absolute() == current_repo_path:
+                        repo_config = cfg
+                        # Self-healing: migration to git config
+                        if not repo_id:
+                            git.git_set_repo_id(current_repo_path, cfg.repo_id)
+                        break
+                except Exception:
+                    continue
+
+    if repo_config:
+        # 1. Target level
+        if repo_config.default_push_relay_wait is not None:
+            return repo_config.default_push_relay_wait
+
+        # 2. Hub level
+        try:
+            hubs_config = LocalHubsConfig.load()
+            hub_cfg = next(
+                (
+                    h
+                    for h in hubs_config.local_hubs
+                    if h.hub_name == repo_config.hub_name
+                ),
+                None,
+            )
+            if hub_cfg and hub_cfg.default_push_relay_wait is not None:
+                return hub_cfg.default_push_relay_wait
+        except Exception:
+            pass
+
+    # 3. Main level
+    return main_config.default_push_relay_wait
 
 
 # --- Config Group ---

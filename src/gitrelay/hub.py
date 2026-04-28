@@ -6,14 +6,19 @@ from pathlib import Path
 from typing import Optional, Tuple
 
 from .config import (
-    LocalBareRepoSyncConfig,
     LocalHubConfig,
     LocalHubsConfig,
-    LocalRepoSyncConfig,
     MainConfig,
+    RepositoryConfig,
     SyncDirection,
 )
-from .git import init_repository, is_bare_repository
+from .git import (
+    generate_repo_id,
+    git_get_repo_id,
+    git_set_repo_id,
+    init_repository,
+    is_bare_repository,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -126,33 +131,39 @@ def setup_sync_with_local_repo(
     if not repo_path.exists():
         raise FileNotFoundError(f"Repository path not found: {repo_path}")
 
-    # Unique alias based on folder name
-    alias = repo_path.name
+    # 1. Ensure the repository has a unique ID
+    repo_id = git_get_repo_id(repo_path)
+    if not repo_id:
+        repo_id = generate_repo_id()
+        git_set_repo_id(repo_path, repo_id)
 
-    if is_bare_repository(repo_path):
-        # Bare repo: use BOTH by default if not specified
-        dir_val = direction or SyncDirection.BOTH
-        config = LocalBareRepoSyncConfig(
-            target_alias=alias,
-            local_repo_path=repo_path,
-            sync_interval_secs=interval_secs,
-            sync_interval_adjust=adjust_interval,
-            sync_direction=dir_val,
-        )
-        hub_config.add_synced_local_bare_repo(config)
-    else:
+    is_bare = is_bare_repository(repo_path)
+
+    if not is_bare:
         # Regular repo: ONLY FETCH is allowed
         if direction and direction != SyncDirection.FETCH:
             raise ValueError(
                 "Regular (non-bare) repositories only support 'fetch' direction."
             )
-        config = LocalRepoSyncConfig(
-            target_alias=alias,
-            local_repo_path=repo_path,
-            sync_interval_secs=interval_secs,
-            sync_interval_adjust=adjust_interval,
-        )
-        hub_config.add_synced_local_repo(config)
+        dir_val = SyncDirection.FETCH
+    else:
+        # Bare repo: use BOTH by default if not specified
+        dir_val = direction or SyncDirection.BOTH
 
+    # 2. Create and save individual repository configuration
+    repo_config = RepositoryConfig(
+        repo_id=repo_id,
+        hub_name=hub_name,
+        local_repo_path=repo_path,
+        is_bare=is_bare,
+        sync_interval_secs=interval_secs,
+        sync_interval_adjust=adjust_interval,
+        sync_direction=dir_val,
+    )
+    repo_config.save()
+
+    # 3. Register the repo ID in the hub configuration
+    hub_config.add_synced_local_repo_id(repo_id)
     hubs_config.save()
+
     logger.info("Setup sync for repo %s with hub %s", repo_path, hub_name)

@@ -10,11 +10,41 @@ import pytest
 
 from gitrelay.git import (
     GitHookType,
+    git_get_toplevel,
+    git_push,
     init_repository,
     install_git_alias,
     install_hook,
     is_bare_repository,
 )
+
+
+def test_git_get_toplevel():
+    with patch("gitrelay.git.subprocess.run") as mock_run:
+        mock_run.return_value = MagicMock(stdout="/path/to/repo\n")
+        assert git_get_toplevel() == Path("/path/to/repo")
+        mock_run.assert_called_once_with(
+            ["git", "rev-parse", "--show-toplevel"],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+
+
+def test_git_push_wait_true():
+    with patch("gitrelay.git.subprocess.run") as mock_run:
+        git_push("hub", True)
+        args, kwargs = mock_run.call_args
+        assert args[0] == ["git", "push", "hub"]
+        assert kwargs["env"]["GITRELAY_HOOK_WAIT"] == "true"
+
+
+def test_git_push_wait_false():
+    with patch("gitrelay.git.subprocess.run") as mock_run:
+        git_push("hub", False)
+        args, kwargs = mock_run.call_args
+        assert args[0] == ["git", "push", "hub"]
+        assert kwargs["env"]["GITRELAY_HOOK_WAIT"] == "false"
 
 
 def test_install_git_alias():

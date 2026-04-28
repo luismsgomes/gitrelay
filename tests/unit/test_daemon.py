@@ -2,7 +2,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from gitrelay.config import LocalHubConfig, MainConfig, SyncBaseConfig
+from gitrelay.config import LocalHubConfig, MainConfig, SyncBaseConfig, SyncDirection
 from gitrelay.daemon import daemon_start
 from gitrelay.scan_jobs import ScanJob
 from gitrelay.sync_jobs import SyncJob
@@ -21,6 +21,14 @@ class StopLoop(Exception):
 
 class MockSyncJob(SyncJob[SyncBaseConfig]):
     """A concrete implementation of the abstract SyncJob class for testing."""
+
+    @property
+    def target_alias(self) -> str:
+        return self.sync_target_config.target_alias
+
+    @property
+    def sync_direction(self) -> SyncDirection:
+        return SyncDirection.FETCH
 
     def _run(self, result) -> None:
         pass
