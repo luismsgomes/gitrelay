@@ -2,7 +2,6 @@
 
 import logging
 import shutil
-import subprocess
 from pathlib import Path
 from typing import Optional, Tuple
 
@@ -14,6 +13,7 @@ from .config import (
     MainConfig,
     SyncDirection,
 )
+from .git import init_repository, is_bare_repository
 
 logger = logging.getLogger(__name__)
 
@@ -47,8 +47,7 @@ def init_hub(hub_name: str) -> Tuple[Path, bool]:
     already_existed = hub_path.exists()
     if not already_existed:
         # 2. Initialize the physical repository
-        hub_path.mkdir(parents=True, exist_ok=True)
-        subprocess.run(["git", "init", "--bare", str(hub_path)], check=True)
+        init_repository(hub_path)
 
     # 3. Register in configuration
     hubs_config.local_hubs.append(LocalHubConfig(hub_name=hub_name))
@@ -78,7 +77,9 @@ def delete_hub(hub_name: str) -> Path:
     # 1. Remove from configuration
     hubs_config = LocalHubsConfig.load()
     original_count = len(hubs_config.local_hubs)
-    hubs_config.local_hubs = [h for h in hubs_config.local_hubs if h.hub_name != hub_name]
+    hubs_config.local_hubs = [
+        h for h in hubs_config.local_hubs if h.hub_name != hub_name
+    ]
 
     if len(hubs_config.local_hubs) == original_count:
         logger.warning("Hub '%s' was not found in configuration.", hub_name)
@@ -103,20 +104,6 @@ def delete_hub(hub_name: str) -> Path:
 
     logger.info("Successfully deleted hub: %s", hub_name)
     return hub_path
-
-
-def is_bare_repository(path: Path) -> bool:
-    """Checks if a directory is a bare git repository."""
-    try:
-        res = subprocess.run(
-            ["git", "-C", str(path), "rev-parse", "--is-bare-repository"],
-            capture_output=True,
-            text=True,
-            check=True,
-        )
-        return res.stdout.strip() == "true"
-    except (subprocess.CalledProcessError, FileNotFoundError):
-        return False
 
 
 def setup_sync_with_local_repo(
